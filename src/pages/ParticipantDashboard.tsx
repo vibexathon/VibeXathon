@@ -359,7 +359,7 @@ const ParticipantDashboard: React.FC<ParticipantProps> = ({ store }) => {
                     >
                       {isAILoading ? (
                         <div className="w-2.5 h-2.5 border border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
-                      ) : <span>✨ AI Refine Abstract</span>}
+                      ) : <span></span>}
                     </button>
                   </div>
                   <textarea 
