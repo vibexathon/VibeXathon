@@ -711,7 +711,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
 
             {!emailEnabled && (
               <div className="mt-4 mb-4 p-4 rounded-2xl bg-yellow-50 border border-yellow-200 text-yellow-800 text-center font-semibold">
-                Email service is temporarily paused — OTPs and confirmation emails are disabled.
+                Website Under Maintenance. Email service is temporarily paused — OTPs and confirmation emails are disabled.
               </div>
             )}
           </div>
