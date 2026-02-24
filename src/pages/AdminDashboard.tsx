@@ -67,6 +67,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ store }) => {
     }));
   };
 
+  const toggleEmailService = () => {
+    updateState(prev => ({
+      ...prev,
+      settings: { ...prev.settings, isEmailEnabled: !prev.settings.isEmailEnabled }
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-slate-950">
       <NavbarManagement 
@@ -123,6 +130,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ store }) => {
             className={`w-full py-3 rounded-lg text-xs font-black transition-all border ${state.settings.isJudgePortalEnabled ? 'bg-green-500/10 text-green-500 border-green-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}
           >
             {state.settings.isJudgePortalEnabled ? 'JUDGING ACTIVE' : 'JUDGING CLOSED'}
+          </button>
+        </div>
+        <div className="glass p-6 rounded-2xl flex flex-col justify-between border-l-4 border-l-emerald-500">
+          <p className="text-xs text-slate-500 uppercase font-bold tracking-widest mb-3">Email Service</p>
+          <button
+            onClick={toggleEmailService}
+            className={`w-full py-3 rounded-lg text-xs font-black transition-all border ${state.settings.isEmailEnabled ? 'bg-green-500/10 text-green-500 border-green-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}
+          >
+            {state.settings.isEmailEnabled ? 'EMAILS ACTIVE' : 'EMAILS PAUSED'}
           </button>
         </div>
         <div className="glass p-6 rounded-2xl border-l-4 border-l-slate-400">

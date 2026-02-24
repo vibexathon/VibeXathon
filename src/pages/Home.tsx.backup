@@ -624,7 +624,7 @@ const Home: React.FC = () => {
           </div>
         </div>
         <p className="text-[9px] text-slate-800 font-bold uppercase tracking-widest pt-6">
-          © 2025 Nagarjuna College of Engineering and Technology Design By samrak production.
+          © 2025 Nagarjuna College of Engineering and Technology Designed & Developed by Samrak Production samrak production.
         </p>
       </footer>
 

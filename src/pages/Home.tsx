@@ -348,7 +348,7 @@ const Home: React.FC = () => {
             <div className="space-y-8">
               <div className="border-l-4 border-indigo-500/50 pl-6 sm:pl-10 py-2">
                 <p className="text-xl sm:text-2xl text-slate-300 font-medium leading-relaxed">
-                  VibeXathon 1.0 is a 24-hour hackathon organized by Nagarjuna College of Engineering and Technology, scheduled on March 16 & 17. The event brings together student innovators to ideate, build, and showcase impactful solutions in an intensive innovation sprint.
+                  Vibexathon 1.0 is a 24-hour hackathon organized by Nagarjuna College of Engineering and Technology, scheduled on March 16 & 17. The event brings together student innovators to ideate, build, and showcase impactful solutions in an intensive innovation sprint.
                 </p>
               </div>
               

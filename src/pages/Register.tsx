@@ -3,8 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { AppState, TeamMember, Team, UserRole } from '../types';
 import Logo from '../components/Logo';
 import { createReceipt, downloadReceipt, printReceipt, Receipt } from '../receiptService';
-import { storage } from '../firebase';
+import { db, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc as firestoreDoc, runTransaction, onSnapshot } from 'firebase/firestore';
 
 interface RegisterProps {
   store: {
@@ -142,7 +143,31 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     return false;
   });
 
+  const slotsFull = (store.state?.teams ?? []).length >= 25;
+
   const [isSendingOtp, setIsSendingOtp] = useState(false);
+  // Allow pausing email sends via Firestore settings or env var
+  const emailEnabled = (store.state?.settings as any)?.isEmailEnabled ?? (import.meta.env.VITE_EMAILJS_ENABLED !== 'false');
+  const [isTogglingEmail, setIsTogglingEmail] = useState(false);
+  const [teamsCount, setTeamsCount] = useState<number>((store.state?.teams ?? []).length);
+
+  useEffect(() => {
+    const counterRef = firestoreDoc(db, 'counters', 'teams');
+    const unsub = onSnapshot(counterRef, (snap) => {
+      if (snap.exists()) {
+        const data: any = snap.data();
+        setTeamsCount(typeof data.count === 'number' ? data.count : (store.state?.teams ?? []).length);
+      } else {
+        setTeamsCount((store.state?.teams ?? []).length);
+      }
+    }, (err) => {
+      console.error('Counter listener error:', err);
+    });
+
+    return () => unsub();
+  }, []);
+
+  const remainingSlots = Math.max(0, 25 - teamsCount);
 
   // Persistence logic: Save to localStorage whenever relevant state changes
   useEffect(() => {
@@ -232,6 +257,10 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
   };
 
   const sendOtp = async () => {
+    if (!emailEnabled) {
+      return setError('Email service is temporarily paused. Please try again later.');
+    }
+
     if (!isValidEmail(formData.email)) {
       return setError('Please enter a valid Official Email address first.');
     }
@@ -309,6 +338,11 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     e.preventDefault();
     setError('');
 
+    // Enforce registration cap
+    if ((store.state?.teams ?? []).length >= 25) {
+      return setError('Registration closed — slots full. Only 25 teams allowed.');
+    }
+
     if (!isOtpVerified) return setError('Please verify your Official Email with OTP before proceeding.');
     if (!isValidEmail(formData.email)) return setError('Leader email is malformed.');
     if (!isTrustedEmail(formData.email)) return setError('Please use a valid  email');
@@ -380,7 +414,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       key: razorpayKey,
       amount: amount * 100, // Razorpay accepts amount in paise
       currency: 'INR',
-      name: 'VibeXathon 1.0',
+      name: 'Vibexathon 1.0',
       description: `Registration Fee: ${formData.isIeeeMember ? 'IEEE Tier' : 'General Tier'}`,
       image: '/assets/poster.png', // Optional: Add your logo
       handler: handlePaymentSuccess,
@@ -411,6 +445,11 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
   };
 
   const handleFinalSubmit = async () => {
+    // Enforce registration cap (double-check before finalizing)
+    if ((store.state?.teams ?? []).length >= 25) {
+      setIsProcessing(false);
+      return setError('Registration closed — slots full. Only 25 teams allowed.');
+    }
     // Strict validation - ensure payment was successful
     if (!paymentData || !paymentData.id) {
       return setError('Payment verification failed. Please complete payment first.');
@@ -476,38 +515,71 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       });
 
       if (registerResult.success) {
-        // Store team data in Firestore
-        await store.updateState(prev => ({
-          ...prev,
-          teams: [...prev.teams, newTeam]
-        }));
+        // Atomically create team and increment counter using Firestore transaction
+        try {
+          const teamDocRef = firestoreDoc(db, 'teams', newTeam.id);
+          const counterRef = firestoreDoc(db, 'counters', 'teams');
+
+          await runTransaction(db, async (tx) => {
+            const counterSnap: any = await tx.get(counterRef);
+            const current = counterSnap.exists() ? (counterSnap.data().count || 0) : 0;
+            if (current >= 25) throw new Error('CAP_REACHED');
+
+            // Create team document
+            tx.set(teamDocRef, {
+              ...newTeam,
+              createdAt: Date.now()
+            });
+
+            // Increment counter (create if missing)
+            tx.set(counterRef, { count: current + 1 }, { merge: true });
+          });
+
+          // Update local app state copy
+          await store.updateState(prev => ({
+            ...prev,
+            teams: [...prev.teams, newTeam]
+          }));
+        } catch (err: any) {
+          if (err?.message === 'CAP_REACHED') {
+            setIsProcessing(false);
+            return setError('Registration closed — slots full. Only 25 teams allowed.');
+          }
+          console.error('Transaction error:', err);
+          setIsProcessing(false);
+          return setError('Failed to finalize registration. Please try again.');
+        }
 
         setIsProcessing(false);
         setScreenshot('DONE');
 
-        // Send registration confirmation email
-        try {
-          await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              service_id: import.meta.env.VITE_EMAILJS_SERVICE_ID || 'YOUR_SERVICE_ID',
-              template_id: import.meta.env.VITE_EMAILJS_TEMPLATE_ID_2 || 'YOUR_TEMPLATE_ID',
-              user_id: import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'YOUR_PUBLIC_KEY',
-              template_params: {
-                to_email: formData.email,
-                to_name: formData.leaderName || 'Participant',
-                reply_to: formData.email,
-                team_name: formData.teamName || 'Participant',
-                password: formData.password,
-                // Add more params as needed
-              }
-            })
-          });
-        } catch (err) {
-          console.error('Registration email send error:', err);
+        // Send registration confirmation email (skip if email service paused)
+        if (emailEnabled) {
+          try {
+            await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                service_id: import.meta.env.VITE_EMAILJS_SERVICE_ID || 'YOUR_SERVICE_ID',
+                template_id: import.meta.env.VITE_EMAILJS_TEMPLATE_ID_2 || 'YOUR_TEMPLATE_ID',
+                user_id: import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'YOUR_PUBLIC_KEY',
+                template_params: {
+                  to_email: formData.email,
+                  to_name: formData.leaderName || 'Participant',
+                  reply_to: formData.email,
+                  team_name: formData.teamName || 'Participant',
+                  password: formData.password,
+                  // Add more params as needed
+                }
+              })
+            });
+          } catch (err) {
+            console.error('Registration email send error:', err);
+          }
+        } else {
+          console.info('Email service paused — skipping registration confirmation email.');
         }
         // Sign out the user immediately so they stay on the success screen
         // instead of being auto-redirected to the dashboard by App.tsx
@@ -629,6 +701,19 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
           <div>
             <h1 className="text-4xl font-extrabold text-white mb-3 tracking-tight">Team Registration</h1>
             <p className="text-slate-400 font-medium text-lg">Initialize your VibeXathon 1.0 identity</p>
+            <div className="mt-3 flex items-center gap-3">
+              <div className={`inline-block text-sm font-bold px-3 py-1 rounded-full ${remainingSlots > 0 ? 'bg-green-600/10 text-green-400 border border-green-500/20' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                {remainingSlots > 0 ? `Slots remaining: ${remainingSlots}` : 'Registration Full'}
+              </div>
+
+              {/* Email service status indicator (admin toggle moved to Admin Dashboard) */}
+            </div>
+
+            {!emailEnabled && (
+              <div className="mt-4 mb-4 p-4 rounded-2xl bg-yellow-50 border border-yellow-200 text-yellow-800 text-center font-semibold">
+                Email service is temporarily paused — OTPs and confirmation emails are disabled.
+              </div>
+            )}
           </div>
           {(formData.teamName || isOtpVerified) && screenshot !== 'DONE' && (
             <button
@@ -647,7 +732,14 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         )}
 
         {step === 'form' ? (
-          <form onSubmit={handlePayment} className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          <>
+            {slotsFull && (
+              <div className="mb-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-center">
+                Registration closed — slots full. Only 25 teams allowed.
+              </div>
+            )}
+
+            <form onSubmit={handlePayment} className={`grid grid-cols-1 lg:grid-cols-2 gap-12 ${slotsFull ? 'pointer-events-none opacity-60' : ''}`}>
             <div className="space-y-8">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Designation</label>
@@ -667,7 +759,18 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">WhatsApp No.</label>
-                  <input type="tel" required pattern="\d{10}" value={formData.leaderContact} onChange={(e) => setFormData({ ...formData, leaderContact: e.target.value })} className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none" placeholder="10 Digits" />
+                  <input
+                    type="tel"
+                    required
+                    pattern="[0-9]{10}"
+                    inputMode="numeric"
+                    maxLength={10}
+                    title="Enter a 10 digit mobile number"
+                    value={formData.leaderContact}
+                    onChange={(e) => setFormData({ ...formData, leaderContact: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                    className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none"
+                    placeholder="10 Digits"
+                  />
                 </div>
               </div>
 
@@ -690,10 +793,10 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                     <button
                       type="button"
                       onClick={sendOtp}
-                      disabled={isSendingOtp || !formData.email}
+                      disabled={isSendingOtp || !formData.email || slotsFull || !emailEnabled}
                       className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold px-6 rounded-2xl transition-all whitespace-nowrap"
                     >
-                      {isSendingOtp ? 'Sending...' : (isOtpSent ? 'Resend OTP' : 'Send OTP')}
+                      {!emailEnabled ? 'Email Paused' : (slotsFull ? 'Registration Closed' : (isSendingOtp ? 'Sending...' : (isOtpSent ? 'Resend OTP' : 'Send OTP')))}
                     </button>
                   )}
                 </div>
@@ -839,12 +942,13 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                   <span className="text-slate-300 font-black text-sm uppercase tracking-widest">Total Fees</span>
                   <span className="text-4xl font-black text-white">₹{calculateAmount()}</span>
                 </div>
-                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]">
-                  Proceed to Secure Checkout
+                <button type="submit" disabled={slotsFull} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]">
+                  {slotsFull ? 'Registration Closed' : 'Proceed to Secure Checkout'}
                 </button>
               </div>
             </div>
           </form>
+          </>
         ) : (
           <div className="max-w-xl mx-auto py-4 animate-in fade-in slide-in-from-bottom-8">
             <div className="text-center mb-10">

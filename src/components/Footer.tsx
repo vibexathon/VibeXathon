@@ -67,7 +67,7 @@ const Footer: React.FC = () => {
         <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
           <p>© 2026 Vibexathon. All Rights Reserved.</p>
           <p>
-            Designed by{' '}
+            Designed & Developed by{' '}
             <a
               href="https://share.google/YaoSdrnCCES1ZHNyS"
               target="_blank"

@@ -247,7 +247,7 @@ export const generateReceiptPDF = (receipt: Receipt): jsPDF => {
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...grayColor);
-  doc.text('© 2026 Vibexathon 1.0 | Designed by Samrak Production', 105, yPos, { align: 'center' });
+  doc.text('© 2026 Vibexathon 1.0 | Designed & Developed by Samrak Production', 105, yPos, { align: 'center' });
 
   return doc;
 };

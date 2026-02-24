@@ -15,6 +15,7 @@ const Logo: React.FC<LogoProps> = ({ className = "", size = 40, showText = true 
 
   useEffect(() => {
     let idx = 0;
+    let vInterval: any = null;
     const interval = setInterval(() => {
       setDisplayedText((prev) => {
         if (idx < fullText.length) {
@@ -24,28 +25,29 @@ const Logo: React.FC<LogoProps> = ({ className = "", size = 40, showText = true 
           clearInterval(interval);
           // Start version typing after main text finishes
           let vIdx = 0;
-          const vInterval = setInterval(() => {
-            setDisplayedVersion((vPrev) => {
-              if (vIdx < versionText.length) {
-                vIdx++;
-                return versionText.slice(0, vIdx);
-              } else {
-                clearInterval(vInterval);
-                return vPrev;
-              }
-            });
+          vInterval = setInterval(() => {
+            if (vIdx < versionText.length) {
+              vIdx++;
+              setDisplayedVersion(versionText.slice(0, vIdx));
+            } else {
+              clearInterval(vInterval);
+              setDisplayedVersion(versionText);
+            }
           }, 120);
           return prev;
         }
       });
     }, 120);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (vInterval) clearInterval(vInterval);
+    };
   }, []);
 
   return (
     <div className={`flex items-center space-x-3 ${className}`}>
       <img
-        src={"/assets/vibe_black.png"}
+        src={"/assets/vibe_white.png"}
         alt="Vibexathon Logo"
         width={size}
         height={size}
