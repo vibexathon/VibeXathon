@@ -29,7 +29,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return { ...parsed.formData, ieeeProof: null };
+        return parsed.formData;
       } catch (e) { console.error('Error parsing saved form data', e); }
     }
     return {
@@ -40,8 +40,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       password: '',
       teamSize: 2,
       isIeeeMember: false,
-      ieeeNumber: '',
-      ieeeProof: null as File | null
+      ieeeNumber: ''
     };
   });
 
@@ -148,7 +147,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
   // Persistence: Save to localStorage whenever relevant state changes
   useEffect(() => {
     const dataToSave = {
-      formData: { ...formData, ieeeProof: null }, // Don't save File object
+      formData,
       members,
       step,
       paymentOrder,
@@ -305,7 +304,6 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     if (formData.leaderContact.length !== 10) return setError('WhatsApp number must be 10 digits.');
     if (formData.isIeeeMember && !formData.ieeeNumber.trim()) return setError('IEEE Membership ID is required for discounted tier.');
     if (formData.isIeeeMember && formData.ieeeNumber.length !== 8) return setError('IEEE Membership ID must be exactly 8 digits.');
-    if (formData.isIeeeMember && !formData.ieeeProof) return setError('IEEE Membership Card/Profile Screenshot is required for discounted tier.');
 
     for (let i = 0; i < members.length; i++) {
       if (!members[i].name || !members[i].email || !members[i].contact) return setError(`Incomplete details for member ${i + 1}.`);
@@ -390,31 +388,6 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       setReceipt(generatedReceipt);
 
       // Now save to Firebase
-      let ieeeProofUrl = '';
-      if (formData.isIeeeMember && formData.ieeeProof) {
-        // Upload IEEE proof to Supabase using helper with retry logic
-        const { uploadFileToSupabase, compressImage } = await import('../uploadHelper');
-        
-        // Compress if it's an image
-        const compressedIeeeFile = await compressImage(formData.ieeeProof, 2);
-        const ieeeFileName = `ieee_proofs/${formData.teamName}_${Date.now()}_${formData.ieeeProof.name}`;
-        
-        // Upload with retry logic
-        const ieeeUploadResult = await uploadFileToSupabase(compressedIeeeFile, ieeeFileName, bucketName, {
-          maxRetries: 3,
-          retryDelay: 1000
-        });
-
-        if (!ieeeUploadResult.success) {
-          console.error('IEEE proof upload error:', ieeeUploadResult.error);
-          setError('Failed to upload IEEE proof: ' + ieeeUploadResult.error + ' - Please Contact: 9035988820 / 9740789361');
-          setIsProcessing(false);
-          return;
-        }
-        
-        ieeeProofUrl = ieeeUploadResult.url!;
-      }
-
       const newTeam: Team = {
         id: `team-${Date.now()}`,
         teamName: formData.teamName,
@@ -427,14 +400,21 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         createdAt: Date.now(),
         isIeeeMember: formData.isIeeeMember,
         ...(formData.isIeeeMember && formData.ieeeNumber ? { ieeeNumber: formData.ieeeNumber } : {}),
-        ...(formData.isIeeeMember && ieeeProofUrl ? { ieeeProofUrl } : {}),
         paymentOrder: updatedOrder,
         receiptNumber: generatedReceipt.receiptNumber,
         receiptData: {
           receiptNumber: generatedReceipt.receiptNumber,
           transactionId: generatedReceipt.transactionId,
+          utrNumber: generatedReceipt.utrNumber,
+          teamName: generatedReceipt.teamName,
+          leaderName: generatedReceipt.leaderName,
+          email: generatedReceipt.email,
+          contact: generatedReceipt.contact,
           amount: generatedReceipt.amount,
           tier: generatedReceipt.tier,
+          ieeeNumber: generatedReceipt.ieeeNumber,
+          teamSize: generatedReceipt.teamSize,
+          members: generatedReceipt.members,
           paymentDate: generatedReceipt.paymentDate,
           timestamp: generatedReceipt.timestamp
         }
@@ -525,28 +505,6 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     setIsProcessing(true);
 
     try {
-      let ieeeProofUrl = '';
-      if (formData.isIeeeMember && formData.ieeeProof) {
-        // Upload IEEE proof to Supabase
-        const { supabase } = await import('../supabaseClient');
-        const bucketName = import.meta.env.VITE_SUPABASE_BUCKET || 'payment-proofs';
-        const ieeeFileName = `ieee_proofs/${formData.teamName}_${Date.now()}_${formData.ieeeProof.name}`;
-        const { data: ieeeData, error: ieeeUploadError } = await supabase.storage.from(bucketName).upload(ieeeFileName, formData.ieeeProof);
-        if (ieeeUploadError) {
-          console.error('IEEE proof upload error:', ieeeUploadError);
-          setIsProcessing(false);
-          return setError('Failed to upload IEEE proof: ' + ieeeUploadError.message);
-        } else {
-          const { data: ieeeUrlData } = supabase.storage.from(bucketName).getPublicUrl(ieeeFileName);
-          if (ieeeUrlData?.publicUrl) {
-            ieeeProofUrl = ieeeUrlData.publicUrl;
-          } else {
-            setIsProcessing(false);
-            return setError('Failed to get IEEE proof URL');
-          }
-        }
-      }
-
       const newTeam: Team = {
         id: `team-${Date.now()}`,
         teamName: formData.teamName,
@@ -559,14 +517,21 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         createdAt: Date.now(),
         isIeeeMember: formData.isIeeeMember,
         ...(formData.isIeeeMember && formData.ieeeNumber ? { ieeeNumber: formData.ieeeNumber } : {}),
-        ...(formData.isIeeeMember && ieeeProofUrl ? { ieeeProofUrl } : {}),
         paymentOrder: paymentOrder,
         receiptNumber: receipt.receiptNumber,
         receiptData: {
           receiptNumber: receipt.receiptNumber,
           transactionId: receipt.transactionId,
+          utrNumber: receipt.utrNumber,
+          teamName: receipt.teamName,
+          leaderName: receipt.leaderName,
+          email: receipt.email,
+          contact: receipt.contact,
           amount: receipt.amount,
           tier: receipt.tier,
+          ieeeNumber: receipt.ieeeNumber,
+          teamSize: receipt.teamSize,
+          members: receipt.members,
           paymentDate: receipt.paymentDate,
           timestamp: receipt.timestamp
         }
@@ -1032,27 +997,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                         maxLength={8}
                         disabled={!isOtpVerified}
                       />
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400">Upload IEEE Membership Proof (Image or PDF)</label>
-                        <div className="relative">
-                          <input
-                            type="file"
-                            accept="image/*,.pdf"
-                            onChange={(e) => setFormData({ ...formData, ieeeProof: e.target.files?.[0] || null })}
-                            className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white file:font-bold hover:file:bg-indigo-500 file:cursor-pointer cursor-pointer"
-                            disabled={!isOtpVerified}
-                          />
-                          {formData.ieeeProof && (
-                            <p className="mt-2 text-xs text-green-400 flex items-center gap-2">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              {formData.ieeeProof.name}
-                            </p>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500">Upload your IEEE membership card or profile screenshot</p>
-                      </div>
+                      <p className="text-xs text-slate-500">Enter your 8-digit IEEE membership ID</p>
                     </div>
                   )}
                 </div>

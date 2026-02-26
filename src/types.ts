@@ -87,8 +87,16 @@ export interface Team {
   receiptData?: {
     receiptNumber: string;
     transactionId: string;
+    utrNumber?: string;
+    teamName: string;
+    leaderName: string;
+    email: string;
+    contact: string;
     amount: number;
     tier: 'IEEE' | 'General';
+    ieeeNumber?: string;
+    teamSize: number;
+    members?: TeamMember[];
     paymentDate: number;
     timestamp: number;
   };

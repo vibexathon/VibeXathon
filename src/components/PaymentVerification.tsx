@@ -103,18 +103,7 @@ const PaymentVerification: React.FC<PaymentVerificationProps> = ({ team, onAppro
       {team.isIeeeMember && (
         <div className="mb-6 bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
           <p className="text-xs text-blue-400 font-bold mb-2">IEEE Member</p>
-          <p className="text-sm text-white mb-3">ID: {team.ieeeNumber || 'N/A'}</p>
-          {team.ieeeProofUrl && (
-            <button
-              onClick={() => window.open(team.ieeeProofUrl, '_blank')}
-              className="w-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-xl p-3 text-blue-400 font-bold text-sm transition-all flex items-center justify-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              View IEEE Membership Proof
-            </button>
-          )}
+          <p className="text-sm text-white">ID: {team.ieeeNumber || 'N/A'}</p>
         </div>
       )}
 
