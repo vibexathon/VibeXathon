@@ -1,0 +1,13 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl) {
+	throw new Error("supabaseUrl is required.");
+}
+if (!supabaseKey) {
+	throw new Error("supabaseKey is required.");
+}
+
+export const supabase = createClient(supabaseUrl, supabaseKey);

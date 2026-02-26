@@ -1,27 +1,23 @@
+import { ref, uploadBytes, getDownloadURL, uploadString } from 'firebase/storage';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AppState, TeamMember, Team, UserRole } from '../types';
 import Logo from '../components/Logo';
 import { createReceipt, downloadReceipt, printReceipt, Receipt } from '../receiptService';
 import { db, storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc as firestoreDoc, runTransaction, onSnapshot } from 'firebase/firestore';
+import { createPaymentOrder, submitPaymentProof } from '../paymentService';
 
 interface RegisterProps {
   store: {
     state: AppState;
     updateState: (updater: (prev: AppState) => AppState) => void;
     register: (email: string, password: string, userData: any) => Promise<{ success: boolean; error?: string }>;
+    logout: () => Promise<void>;
   };
 }
 
 const REGISTRATION_DRAFT_KEY = 'VBX_REGISTRATION_DRAFT';
-
-declare global {
-  interface Window {
-    Razorpay: any;
-  }
-}
 
 const Register: React.FC<RegisterProps> = ({ store }) => {
   const navigate = useNavigate();
@@ -33,7 +29,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return { ...parsed.formData, ieeeProof: null }; // File objects can't be persisted
+        return { ...parsed.formData, ieeeProof: null };
       } catch (e) { console.error('Error parsing saved form data', e); }
     }
     return {
@@ -58,13 +54,13 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       } catch (e) { }
     }
     return [
-      { name: '', email: '' },
-      { name: '', email: '' }
+      { name: '', email: '', contact: '' },
+      { name: '', email: '', contact: '' }
     ];
   });
 
   const [error, setError] = useState('');
-  const [step, setStep] = useState<'form' | 'verification'>(() => {
+  const [step, setStep] = useState<'form' | 'payment' | 'verification'>(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
     if (saved) {
       try {
@@ -75,28 +71,29 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     return 'form';
   });
 
-  const [paymentData, setPaymentData] = useState<{ id: string; amount: number } | null>(() => {
+  const [paymentOrder, setPaymentOrder] = useState<any>(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return parsed.paymentData || null;
+        return parsed.paymentOrder || null;
       } catch (e) { }
     }
     return null;
   });
-
-  const [screenshot, setScreenshot] = useState<string | null>(() => {
+  
+  const [utrNumber, setUtrNumber] = useState(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return parsed.screenshot || null;
+        return parsed.utrNumber || '';
       } catch (e) { }
     }
-    return null;
+    return '';
   });
-
+  
+  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
@@ -109,6 +106,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     return null;
   });
 
+  // OTP verification states
   const [otp, setOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
@@ -120,7 +118,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     }
     return '';
   });
-
+  
   const [isOtpSent, setIsOtpSent] = useState(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
     if (saved) {
@@ -131,7 +129,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     }
     return false;
   });
-
+  
   const [isOtpVerified, setIsOtpVerified] = useState(() => {
     const saved = localStorage.getItem(REGISTRATION_DRAFT_KEY);
     if (saved) {
@@ -142,14 +140,26 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     }
     return false;
   });
-
-  const slotsFull = (store.state?.teams ?? []).length >= 25;
-
+  
   const [isSendingOtp, setIsSendingOtp] = useState(false);
-  // Allow pausing email sends via Firestore settings or env var
-  const emailEnabled = (store.state?.settings as any)?.isEmailEnabled ?? (import.meta.env.VITE_EMAILJS_ENABLED !== 'false');
-  const [isTogglingEmail, setIsTogglingEmail] = useState(false);
+
   const [teamsCount, setTeamsCount] = useState<number>((store.state?.teams ?? []).length);
+
+  // Persistence: Save to localStorage whenever relevant state changes
+  useEffect(() => {
+    const dataToSave = {
+      formData: { ...formData, ieeeProof: null }, // Don't save File object
+      members,
+      step,
+      paymentOrder,
+      utrNumber,
+      receipt,
+      generatedOtp,
+      isOtpSent,
+      isOtpVerified
+    };
+    localStorage.setItem(REGISTRATION_DRAFT_KEY, JSON.stringify(dataToSave));
+  }, [formData, members, step, paymentOrder, utrNumber, receipt, generatedOtp, isOtpSent, isOtpVerified]);
 
   useEffect(() => {
     const counterRef = firestoreDoc(db, 'counters', 'teams');
@@ -168,53 +178,16 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
   }, []);
 
   const remainingSlots = Math.max(0, 25 - teamsCount);
-
-  // Persistence logic: Save to localStorage whenever relevant state changes
-  useEffect(() => {
-    const dataToSave = {
-      formData: { ...formData, ieeeProof: null }, // Don't try to save File object
-      members,
-      step,
-      paymentData,
-      screenshot: screenshot === 'DONE' ? null : screenshot, // Don't persist DONE state as it should be fresh
-      receipt,
-      generatedOtp,
-      isOtpSent,
-      isOtpVerified
-    };
-    localStorage.setItem(REGISTRATION_DRAFT_KEY, JSON.stringify(dataToSave));
-  }, [formData, members, step, paymentData, screenshot, receipt, generatedOtp, isOtpSent, isOtpVerified]);
-
-  useEffect(() => {
-    if (screenshot === 'DONE') {
-      localStorage.removeItem(REGISTRATION_DRAFT_KEY);
-    }
-  }, [screenshot]);
-
-  const clearDraft = () => {
-    if (confirm("This will clear your registration progress. Are you sure?")) {
-      localStorage.removeItem(REGISTRATION_DRAFT_KEY);
-      window.location.reload();
-    }
-  };
+  const slotsFull = teamsCount >= 25;
+  const emailEnabled = (store.state?.settings as any)?.isEmailEnabled ?? (import.meta.env.VITE_EMAILJS_ENABLED !== 'false');
 
   useEffect(() => {
     setMembers(prev => {
       const updated = [...prev];
-      updated[0] = { name: formData.leaderName, email: formData.email };
+      updated[0] = { name: formData.leaderName, email: formData.email, contact: formData.leaderContact };
       return updated;
     });
-  }, [formData.leaderName, formData.email]);
-
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.async = true;
-    document.body.appendChild(script);
-    return () => {
-      if (document.body.contains(script)) document.body.removeChild(script);
-    };
-  }, []);
+  }, [formData.leaderName, formData.email, formData.leaderContact]);
 
   const handleTeamSizeChange = (size: number) => {
     setFormData({ ...formData, teamSize: size });
@@ -222,7 +195,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       const newMembers = [...prev];
       if (size > prev.length) {
         for (let i = prev.length; i < size; i++) {
-          newMembers.push({ name: '', email: '' });
+          newMembers.push({ name: '', email: '', contact: '' });
         }
       } else {
         newMembers.splice(size);
@@ -248,11 +221,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
   const isTrustedEmail = (email: string) => {
     const domain = email.split('@')[1]?.toLowerCase();
     if (!domain) return false;
-
-    // Check if it's a trusted domain or an educational/organizational domain (.edu, .ac.in, .org)
     if (TRUSTED_DOMAINS.includes(domain)) return true;
     if (domain.endsWith('.edu') || domain.endsWith('.ac.in') || domain.endsWith('.edu.in') || domain.endsWith('.org')) return true;
-
     return false;
   };
 
@@ -262,10 +232,10 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     }
 
     if (!isValidEmail(formData.email)) {
-      return setError('Please enter a valid Official Email address first.');
+      return setError('Please enter a valid email address first.');
     }
     if (!isTrustedEmail(formData.email)) {
-      return setError('Please use a valid  email');
+      return setError('Please use a valid email');
     }
     setIsSendingOtp(true);
     setError('');
@@ -295,10 +265,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
 
       if (response.ok) {
         setIsOtpSent(true);
-        // Show a temporary success message in the error box (styled as success)
         setError(`OTP successfully sent to ${formData.email}`);
         setTimeout(() => {
-          // Clear the success message after 5 seconds if it hasn't been replaced by an error
           setError(prev => prev.startsWith('OTP successfully sent') ? '' : prev);
         }, 5000);
       } else {
@@ -323,159 +291,113 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setScreenshot(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handlePayment = (e: React.FormEvent) => {
+  const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // Enforce registration cap
-    if ((store.state?.teams ?? []).length >= 25) {
+    if (slotsFull) {
       return setError('Registration closed — slots full. Only 25 teams allowed.');
     }
 
-    if (!isOtpVerified) return setError('Please verify your Official Email with OTP before proceeding.');
+    if (!isOtpVerified) return setError('Please verify your email with OTP before proceeding.');
     if (!isValidEmail(formData.email)) return setError('Leader email is malformed.');
-    if (!isTrustedEmail(formData.email)) return setError('Please use a valid  email');
+    if (!isTrustedEmail(formData.email)) return setError('Please use a valid email');
     if (formData.leaderContact.length !== 10) return setError('WhatsApp number must be 10 digits.');
     if (formData.isIeeeMember && !formData.ieeeNumber.trim()) return setError('IEEE Membership ID is required for discounted tier.');
     if (formData.isIeeeMember && !formData.ieeeProof) return setError('IEEE Membership Card/Profile Screenshot is required for discounted tier.');
 
     for (let i = 0; i < members.length; i++) {
-      if (!members[i].name || !members[i].email) return setError(`Incomplete details for member ${i + 1}.`);
+      if (!members[i].name || !members[i].email || !members[i].contact) return setError(`Incomplete details for member ${i + 1}.`);
+      if (members[i].contact.length !== 10) return setError(`Member ${i + 1} contact must be 10 digits.`);
     }
 
-    if ((store.state?.teams ?? []).some((t: Team) => t.teamName.toLowerCase() === formData.teamName.toLowerCase())) return setError('This team name is already registered.');
-
-    if (!window.Razorpay) return setError('Razorpay SDK failed to load. Please refresh.');
-
-    const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
-    if (!razorpayKey || razorpayKey === 'rzp_test_YOUR_KEY_HERE') {
-      return setError('Razorpay is not configured. Please contact the administrator.');
+    if ((store.state?.teams ?? []).some((t: Team) => t.teamName.toLowerCase() === formData.teamName.toLowerCase())) {
+      return setError('This team name is already registered.');
     }
 
-    const amount = calculateAmount();
-
-    const handlePaymentSuccess = (response: any) => {
-      // Strict validation - only proceed if payment ID exists
-      if (!response || !response.razorpay_payment_id) {
-        setError('Payment validation failed. Please contact support.');
-        return;
+    // Generate UPI payment order
+    setIsProcessing(true);
+    try {
+      const amount = calculateAmount();
+      const order = await createPaymentOrder(amount);
+      
+      if (!order.qrCodeDataUrl) {
+        throw new Error('QR code generation failed');
       }
-
-      // Payment successful - capture payment details
-      console.log('Payment successful:', response);
-
-      try {
-        // Generate receipt ONLY after successful payment
-        const generatedReceipt = createReceipt({
-          transactionId: response.razorpay_payment_id,
-          teamName: formData.teamName,
-          leaderName: formData.leaderName,
-          email: formData.email,
-          contact: formData.leaderContact,
-          amount: amount,
-          isIeeeMember: formData.isIeeeMember,
-          ieeeNumber: formData.ieeeNumber,
-          teamSize: formData.teamSize
-        });
-
-        setReceipt(generatedReceipt);
-        setPaymentData({
-          id: response.razorpay_payment_id,
-          amount
-        });
-        setStep('verification');
-        setError(''); // Clear any previous errors
-      } catch (err) {
-        console.error('Receipt generation failed:', err);
-        setError('Payment successful but receipt generation failed. Please contact support with your payment ID: ' + response.razorpay_payment_id);
-      }
-    };
-
-    const handlePaymentFailure = (response?: any) => {
-      // Payment was cancelled or failed - ensure no receipt is generated
-      setReceipt(null);
-      setPaymentData(null);
-      console.log('Payment failed or cancelled:', response);
-      setError('Payment was cancelled or failed. Please try again to complete registration.');
-    };
-
-    const options = {
-      key: razorpayKey,
-      amount: amount * 100, // Razorpay accepts amount in paise
-      currency: 'INR',
-      name: 'Vibexathon 1.0',
-      description: `Registration Fee: ${formData.isIeeeMember ? 'IEEE Tier' : 'General Tier'}`,
-      image: '/assets/poster.png', // Optional: Add your logo
-      handler: handlePaymentSuccess,
-      prefill: {
-        name: formData.leaderName,
-        email: formData.email,
-        contact: formData.leaderContact
-      },
-      notes: {
-        team_name: formData.teamName,
-        ieee_member: formData.isIeeeMember ? 'Yes' : 'No',
-        team_size: formData.teamSize
-      },
-      theme: {
-        color: '#6366f1',
-        backdrop_color: '#000000'
-      },
-      modal: {
-        ondismiss: handlePaymentFailure,
-        confirm_close: true,
-        escape: true,
-        animation: true
-      }
-    };
-
-    const rzp = new window.Razorpay(options);
-    rzp.open();
+      
+      setPaymentOrder(order);
+      setStep('payment');
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate payment QR code');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleFinalSubmit = async () => {
-    // Enforce registration cap (double-check before finalizing)
-    if ((store.state?.teams ?? []).length >= 25) {
-      setIsProcessing(false);
-      return setError('Registration closed — slots full. Only 25 teams allowed.');
-    }
-    // Strict validation - ensure payment was successful
-    if (!paymentData || !paymentData.id) {
-      return setError('Payment verification failed. Please complete payment first.');
-    }
+  const handlePaymentProofSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    console.log('Payment proof submit handler triggered');
 
-    if (!receipt || !receipt.receiptNumber) {
-      return setError('Receipt not generated. Please contact support.');
-    }
-
-    if (!screenshot) {
-      return setError('Payment proof is mandatory.');
+    if (!utrNumber || !paymentScreenshot) {
+      setError('Please provide both UTR number and payment screenshot.');
+      return;
     }
 
     setIsProcessing(true);
-
-
     try {
-      let ieeeProofUrl = '';
-      if (formData.isIeeeMember && formData.ieeeProof) {
-        // Upload IEEE proof to Firebase Storage
-        const ieeeRef = ref(storage, `ieee_proofs/${formData.teamName}_${Date.now()}_${formData.ieeeProof.name}`);
-        await uploadBytes(ieeeRef, formData.ieeeProof);
-        ieeeProofUrl = await getDownloadURL(ieeeRef);
+      // Upload image to Supabase Storage
+      const { supabase } = await import('../supabaseClient');
+      const bucketName = import.meta.env.VITE_SUPABASE_BUCKET || 'payment-proofs';
+      const fileName = `payment_proofs/${paymentOrder.orderId}_${Date.now()}.jpg`;
+      const { data, error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, paymentScreenshot);
+      if (uploadError) {
+        setError('Failed to upload image to Supabase: ' + uploadError.message);
+        setIsProcessing(false);
+        return;
+      }
+      // Get public URL
+      const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileName);
+      if (!urlData?.publicUrl) {
+        setError('Failed to get public image URL from Supabase');
+        setIsProcessing(false);
+        return;
       }
 
-      // First, create the team in Firestore (remove undefined fields for Firestore compatibility)
+      // Update payment order with Supabase image URL
+      const updatedOrder = submitPaymentProof(paymentOrder, utrNumber, urlData.publicUrl);
+      setPaymentOrder(updatedOrder);
+
+      // Generate receipt
+      const generatedReceipt = createReceipt({
+        transactionId: updatedOrder.orderId,
+        teamName: formData.teamName,
+        leaderName: formData.leaderName,
+        email: formData.email,
+        contact: formData.leaderContact,
+        amount: updatedOrder.amount,
+        isIeeeMember: formData.isIeeeMember,
+        ieeeNumber: formData.ieeeNumber,
+        teamSize: formData.teamSize
+      });
+      setReceipt(generatedReceipt);
+
+      // Now save to Firebase
+      let ieeeProofUrl = '';
+      if (formData.isIeeeMember && formData.ieeeProof) {
+        // Upload IEEE proof to Supabase
+        const ieeeFileName = `ieee_proofs/${formData.teamName}_${Date.now()}_${formData.ieeeProof.name}`;
+        const { data: ieeeData, error: ieeeUploadError } = await supabase.storage.from(bucketName).upload(ieeeFileName, formData.ieeeProof);
+        if (ieeeUploadError) {
+          console.error('IEEE proof upload error:', ieeeUploadError);
+        } else {
+          const { data: ieeeUrlData } = supabase.storage.from(bucketName).getPublicUrl(ieeeFileName);
+          if (ieeeUrlData?.publicUrl) {
+            ieeeProofUrl = ieeeUrlData.publicUrl;
+          }
+        }
+      }
+
       const newTeam: Team = {
         id: `team-${Date.now()}`,
         teamName: formData.teamName,
@@ -489,24 +411,18 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         isIeeeMember: formData.isIeeeMember,
         ...(formData.isIeeeMember && formData.ieeeNumber ? { ieeeNumber: formData.ieeeNumber } : {}),
         ...(formData.isIeeeMember && ieeeProofUrl ? { ieeeProofUrl } : {}),
-        paymentId: paymentData?.id,
-        amountPaid: paymentData?.amount,
-        paymentScreenshot: screenshot,
-        // Save receipt data to database (only if receipt exists)
-        ...(receipt ? {
-          receiptNumber: receipt.receiptNumber,
-          receiptData: {
-            receiptNumber: receipt.receiptNumber,
-            transactionId: receipt.transactionId,
-            amount: receipt.amount,
-            tier: receipt.tier,
-            paymentDate: receipt.paymentDate,
-            timestamp: receipt.timestamp
-          }
-        } : {})
+        paymentOrder: updatedOrder,
+        receiptNumber: generatedReceipt.receiptNumber,
+        receiptData: {
+          receiptNumber: generatedReceipt.receiptNumber,
+          transactionId: generatedReceipt.transactionId,
+          amount: generatedReceipt.amount,
+          tier: generatedReceipt.tier,
+          paymentDate: generatedReceipt.paymentDate,
+          timestamp: generatedReceipt.timestamp
+        }
       };
 
-      // Register the user with Firebase Authentication
       const registerResult = await store.register(formData.email, formData.password, {
         role: UserRole.PARTICIPANT,
         teamId: newTeam.id,
@@ -515,45 +431,30 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       });
 
       if (registerResult.success) {
-        // Atomically create team and increment counter using Firestore transaction
-        try {
-          const teamDocRef = firestoreDoc(db, 'teams', newTeam.id);
-          const counterRef = firestoreDoc(db, 'counters', 'teams');
+        const teamDocRef = firestoreDoc(db, 'teams', newTeam.id);
+        const counterRef = firestoreDoc(db, 'counters', 'teams');
 
-          await runTransaction(db, async (tx) => {
-            const counterSnap: any = await tx.get(counterRef);
-            const current = counterSnap.exists() ? (counterSnap.data().count || 0) : 0;
-            if (current >= 25) throw new Error('CAP_REACHED');
+        await runTransaction(db, async (tx) => {
+          const counterSnap: any = await tx.get(counterRef);
+          const current = counterSnap.exists() ? (counterSnap.data().count || 0) : 0;
+          if (current >= 25) throw new Error('CAP_REACHED');
 
-            // Create team document
-            tx.set(teamDocRef, {
-              ...newTeam,
-              createdAt: Date.now()
-            });
-
-            // Increment counter (create if missing)
-            tx.set(counterRef, { count: current + 1 }, { merge: true });
+          tx.set(teamDocRef, {
+            ...newTeam,
+            createdAt: Date.now()
           });
 
-          // Update local app state copy
-          await store.updateState(prev => ({
-            ...prev,
-            teams: [...prev.teams, newTeam]
-          }));
-        } catch (err: any) {
-          if (err?.message === 'CAP_REACHED') {
-            setIsProcessing(false);
-            return setError('Registration closed — slots full. Only 25 teams allowed.');
-          }
-          console.error('Transaction error:', err);
-          setIsProcessing(false);
-          return setError('Failed to finalize registration. Please try again.');
-        }
+          tx.set(counterRef, { count: current + 1 }, { merge: true });
+        });
 
-        setIsProcessing(false);
-        setScreenshot('DONE');
+        await store.updateState(prev => ({
+          ...prev,
+          teams: [...prev.teams, newTeam]
+        }));
 
-        // Send registration confirmation email (skip if email service paused)
+        localStorage.removeItem(REGISTRATION_DRAFT_KEY);
+
+        // Send registration confirmation email
         if (emailEnabled) {
           try {
             await fetch('https://api.emailjs.com/api/v1.0/email/send', {
@@ -571,23 +472,160 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                   reply_to: formData.email,
                   team_name: formData.teamName || 'Participant',
                   password: formData.password,
-                  // Add more params as needed
+                }
+              })
+            });
+          } catch (emailErr) {
+            console.error('Email send error:', emailErr);
+          }
+        }
+
+        setStep('verification');
+      } else {
+        setError(registerResult.error || 'Registration failed');
+      }
+    } catch (err: any) {
+      if (err?.message === 'CAP_REACHED') {
+        setError('Registration closed — slots full. Only 25 teams allowed.');
+      } else {
+        setError(err.message || 'Failed to submit payment proof');
+      }
+      console.error('Payment proof submit error:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFinalSubmit = async () => {
+    if (slotsFull) {
+      return setError('Registration closed — slots full. Only 25 teams allowed.');
+    }
+
+    if (!paymentOrder || !receipt) {
+      return setError('Please complete payment proof submission first.');
+    }
+
+    setIsProcessing(true);
+
+    try {
+      let ieeeProofUrl = '';
+      if (formData.isIeeeMember && formData.ieeeProof) {
+        // Upload IEEE proof to Supabase
+        const { supabase } = await import('../supabaseClient');
+        const bucketName = import.meta.env.VITE_SUPABASE_BUCKET || 'payment-proofs';
+        const ieeeFileName = `ieee_proofs/${formData.teamName}_${Date.now()}_${formData.ieeeProof.name}`;
+        const { data: ieeeData, error: ieeeUploadError } = await supabase.storage.from(bucketName).upload(ieeeFileName, formData.ieeeProof);
+        if (ieeeUploadError) {
+          console.error('IEEE proof upload error:', ieeeUploadError);
+        } else {
+          const { data: ieeeUrlData } = supabase.storage.from(bucketName).getPublicUrl(ieeeFileName);
+          if (ieeeUrlData?.publicUrl) {
+            ieeeProofUrl = ieeeUrlData.publicUrl;
+          }
+        }
+      }
+
+      const newTeam: Team = {
+        id: `team-${Date.now()}`,
+        teamName: formData.teamName,
+        leaderName: formData.leaderName,
+        leaderContact: formData.leaderContact,
+        email: formData.email,
+        password: formData.password,
+        members,
+        isVerified: false,
+        createdAt: Date.now(),
+        isIeeeMember: formData.isIeeeMember,
+        ...(formData.isIeeeMember && formData.ieeeNumber ? { ieeeNumber: formData.ieeeNumber } : {}),
+        ...(formData.isIeeeMember && ieeeProofUrl ? { ieeeProofUrl } : {}),
+        paymentOrder: paymentOrder,
+        receiptNumber: receipt.receiptNumber,
+        receiptData: {
+          receiptNumber: receipt.receiptNumber,
+          transactionId: receipt.transactionId,
+          amount: receipt.amount,
+          tier: receipt.tier,
+          paymentDate: receipt.paymentDate,
+          timestamp: receipt.timestamp
+        }
+      };
+
+      const registerResult = await store.register(formData.email, formData.password, {
+        role: UserRole.PARTICIPANT,
+        teamId: newTeam.id,
+        teamName: formData.teamName,
+        isVerified: false
+      });
+
+      if (registerResult.success) {
+        try {
+          const teamDocRef = firestoreDoc(db, 'teams', newTeam.id);
+          const counterRef = firestoreDoc(db, 'counters', 'teams');
+
+          await runTransaction(db, async (tx) => {
+            const counterSnap: any = await tx.get(counterRef);
+            const current = counterSnap.exists() ? (counterSnap.data().count || 0) : 0;
+            if (current >= 25) throw new Error('CAP_REACHED');
+
+            tx.set(teamDocRef, {
+              ...newTeam,
+              createdAt: Date.now()
+            });
+
+            tx.set(counterRef, { count: current + 1 }, { merge: true });
+          });
+
+          await store.updateState(prev => ({
+            ...prev,
+            teams: [...prev.teams, newTeam]
+          }));
+        } catch (err: any) {
+          if (err?.message === 'CAP_REACHED') {
+            setIsProcessing(false);
+            return setError('Registration closed — slots full. Only 25 teams allowed.');
+          }
+          console.error('Transaction error:', err);
+          setIsProcessing(false);
+          return setError('Failed to finalize registration. Please try again.');
+        }
+
+        setIsProcessing(false);
+        localStorage.removeItem(REGISTRATION_DRAFT_KEY);
+
+        // Send registration confirmation email
+        if (emailEnabled) {
+          try {
+            await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                service_id: import.meta.env.VITE_EMAILJS_SERVICE_ID || 'YOUR_SERVICE_ID',
+                template_id: import.meta.env.VITE_EMAILJS_TEMPLATE_ID_2 || 'YOUR_TEMPLATE_ID',
+                user_id: import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'YOUR_PUBLIC_KEY',
+                template_params: {
+                  to_email: formData.email,
+                  to_name: formData.leaderName || 'Participant',
+                  reply_to: formData.email,
+                  team_name: formData.teamName || 'Participant',
+                  password: formData.password,
                 }
               })
             });
           } catch (err) {
             console.error('Registration email send error:', err);
           }
-        } else {
-          console.info('Email service paused — skipping registration confirmation email.');
         }
-        // Sign out the user immediately so they stay on the success screen
-        // instead of being auto-redirected to the dashboard by App.tsx
+
         try {
           await store.logout();
         } catch (e) {
           console.error("Logout failed during registration success flow", e);
         }
+
+        // Navigate to success page
+        navigate('/register-success', { state: { teamName: formData.teamName, receipt } });
       } else {
         setError(registerResult.error || 'Registration failed');
         setIsProcessing(false);
@@ -598,7 +636,15 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     }
   };
 
-  if (screenshot === 'DONE') {
+  const clearDraft = () => {
+    if (confirm("This will clear your registration progress. Are you sure?")) {
+      localStorage.removeItem(REGISTRATION_DRAFT_KEY);
+      window.location.reload();
+    }
+  };
+
+  // Success page after registration
+  if (step === 'verification' && !isProcessing && receipt) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6">
         <div className="glass-card p-12 rounded-[3rem] text-center border-t-4 border-t-indigo-500 glow-indigo">
@@ -607,7 +653,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-3xl font-black text-white mb-4">Registration Locked</h2>
+          <h2 className="text-3xl font-black text-white mb-4">Registration Submitted</h2>
           <p className="text-slate-400 mb-10 font-medium">
             Team <b>{formData.teamName}</b> has been successfully submitted for verification.
           </p>
@@ -659,19 +705,19 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
           )}
 
           <div className="bg-slate-900/40 rounded-3xl p-8 border border-white/5 text-left mb-10 space-y-6">
-            <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] pb-2 border-b border-white/5">Next Milestones</h3>
+            <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] pb-2 border-b border-white/5">Next Steps</h3>
             <div className="flex space-x-4">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-black">01</div>
               <div>
-                <p className="text-sm font-bold text-white">Security Review</p>
-                <p className="text-xs text-slate-500">Admins will verify your payment and credentials.</p>
+                <p className="text-sm font-bold text-white">Payment Verification</p>
+                <p className="text-xs text-slate-500">Admin will verify your UTR and payment screenshot.</p>
               </div>
             </div>
             <div className="flex space-x-4 opacity-50">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-black">02</div>
               <div>
-                <p className="text-sm font-bold text-slate-400">Portal Unlock</p>
-                <p className="text-xs text-slate-600">Access granted to project submissions and dashboard.</p>
+                <p className="text-sm font-bold text-slate-400">Portal Access</p>
+                <p className="text-xs text-slate-600">Full dashboard and submission features unlocked.</p>
               </div>
             </div>
           </div>
@@ -680,7 +726,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
             onClick={() => window.location.href = '/login'}
             className="block w-full brand-gradient hover:opacity-90 text-white font-black py-4 rounded-2xl shadow-xl transition-all transform hover:scale-[1.02]"
           >
-            Return to Dashboard Login
+            Go to Login
           </button>
         </div>
       </div>
@@ -705,8 +751,6 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
               <div className={`inline-block text-sm font-bold px-3 py-1 rounded-full ${remainingSlots > 0 ? 'bg-green-600/10 text-green-400 border border-green-500/20' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                 {remainingSlots > 0 ? `Slots remaining: ${remainingSlots}` : 'Registration Full'}
               </div>
-
-              {/* Email service status indicator (admin toggle moved to Admin Dashboard) */}
             </div>
 
             {!emailEnabled && (
@@ -715,12 +759,12 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
               </div>
             )}
           </div>
-          {(formData.teamName || isOtpVerified) && screenshot !== 'DONE' && (
+          {(formData.teamName || isOtpVerified) && step === 'form' && (
             <button
               onClick={clearDraft}
               className="text-xs font-black text-slate-600 hover:text-red-500 transition-colors uppercase tracking-widest pb-1 border-b border-transparent hover:border-red-500/50"
             >
-              
+              Clear Draft
             </button>
           )}
         </div>
@@ -731,7 +775,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
           </div>
         )}
 
-        {step === 'form' ? (
+        {step === 'form' && (
           <>
             {slotsFull && (
               <div className="mb-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-center">
@@ -740,312 +784,347 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
             )}
 
             <form onSubmit={handlePayment} className={`grid grid-cols-1 lg:grid-cols-2 gap-12 ${slotsFull ? 'pointer-events-none opacity-60' : ''}`}>
-            <div className="space-y-8">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Designation</label>
-                <input
-                  type="text" required
-                  value={formData.teamName}
-                  onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
-                  className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white focus:ring-2 focus:ring-indigo-500/40 outline-none transition-all placeholder:text-slate-700 font-bold"
-                  placeholder="The Visionaries"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-8">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Leader Name</label>
-                  <input type="text" required value={formData.leaderName} onChange={(e) => setFormData({ ...formData, leaderName: e.target.value })} className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">WhatsApp No.</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Designation</label>
                   <input
-                    type="tel"
-                    required
-                    pattern="[0-9]{10}"
-                    inputMode="numeric"
-                    maxLength={10}
-                    title="Enter a 10 digit mobile number"
-                    value={formData.leaderContact}
-                    onChange={(e) => setFormData({ ...formData, leaderContact: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                    className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none"
-                    placeholder="10 Digits"
+                    type="text" required
+                    value={formData.teamName}
+                    onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
+                    className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white focus:ring-2 focus:ring-indigo-500/40 outline-none transition-all placeholder:text-slate-700 font-bold"
+                    placeholder="The Visionaries"
                   />
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Official Email</label>
-                <div className="flex space-x-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Leader Name</label>
+                    <input
+                      type="text" required
+                      value={formData.leaderName}
+                      onChange={(e) => setFormData({ ...formData, leaderName: e.target.value })}
+                      className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">WhatsApp (10 digits)</label>
+                    <input
+                      type="tel" required
+                      value={formData.leaderContact}
+                      onChange={(e) => setFormData({ ...formData, leaderContact: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                      className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold"
+                      placeholder="9876543210"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Official Email</label>
                   <input
                     type="email" required
                     value={formData.email}
-                    onChange={(e) => {
-                      setFormData({ ...formData, email: e.target.value });
-                      setIsOtpSent(false);
-                      setIsOtpVerified(false);
-                    }}
-                    disabled={isOtpVerified}
-                    className={`w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none ${isOtpVerified ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    placeholder="leader@email.com"
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold"
                   />
                   {!isOtpVerified && (
+                    <div className="flex gap-2 mt-2">
+                      {!isOtpSent ? (
+                        <button
+                          type="button"
+                          onClick={sendOtp}
+                          disabled={isSendingOtp || !formData.email}
+                          className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50"
+                        >
+                          {isSendingOtp ? 'Sending...' : 'Send OTP'}
+                        </button>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={otp}
+                            onChange={(e) => setOtp(e.target.value)}
+                            placeholder="Enter OTP"
+                            className="flex-1 bg-slate-900/50 border border-white/5 rounded-lg px-4 py-2 text-white text-sm"
+                            maxLength={6}
+                          />
+                          <button
+                            type="button"
+                            onClick={verifyOtp}
+                            className="text-xs bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg"
+                          >
+                            Verify
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {isOtpVerified && (
+                    <p className="text-xs text-green-400 mt-1">✓ Email verified</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Password</label>
+                  <input
+                    type="password" required
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold"
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Size</label>
+                  <div className="flex gap-3">
+                    {[2, 3, 4].map(size => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => handleTeamSizeChange(size)}
+                        className={`flex-1 py-3 rounded-xl font-bold transition-all ${formData.teamSize === size ? 'bg-indigo-600 text-white' : 'bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Membership Tier</label>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* IEEE Card */}
                     <button
                       type="button"
-                      onClick={sendOtp}
-                      disabled={isSendingOtp || !formData.email || slotsFull || !emailEnabled}
-                      className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold px-6 rounded-2xl transition-all whitespace-nowrap"
+                      onClick={() => setFormData({ ...formData, isIeeeMember: true })}
+                      className={`relative p-6 rounded-2xl border-2 transition-all ${
+                        formData.isIeeeMember 
+                          ? 'border-indigo-500 bg-indigo-500/10' 
+                          : 'border-slate-700 bg-slate-900/30 hover:border-slate-600'
+                      }`}
                     >
-                      {!emailEnabled ? 'Email Paused' : (slotsFull ? 'Registration Closed' : (isSendingOtp ? 'Sending...' : (isOtpSent ? 'Resend OTP' : 'Send OTP')))}
+                      <div className="text-center">
+                        <h3 className="text-2xl font-black text-white mb-2">IEEE</h3>
+                        <p className="text-slate-400 text-sm font-bold">₹400 / TEAM</p>
+                      </div>
+                      {formData.isIeeeMember && (
+                        <div className="absolute top-3 right-3 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      )}
                     </button>
+
+                    {/* General Card */}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, isIeeeMember: false })}
+                      className={`relative p-6 rounded-2xl border-2 transition-all ${
+                        !formData.isIeeeMember 
+                          ? 'border-indigo-500 bg-indigo-500/10' 
+                          : 'border-slate-700 bg-slate-900/30 hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="text-center">
+                        <h3 className="text-2xl font-black text-white mb-2">General</h3>
+                        <p className="text-slate-400 text-sm font-bold">₹500 / TEAM</p>
+                      </div>
+                      {!formData.isIeeeMember && (
+                        <div className="absolute top-3 right-3 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {formData.isIeeeMember && (
+                    <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6 space-y-4">
+                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">IEEE Member Details</p>
+                      <input
+                        type="text"
+                        placeholder="IEEE Membership ID"
+                        value={formData.ieeeNumber}
+                        onChange={(e) => setFormData({ ...formData, ieeeNumber: e.target.value })}
+                        className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none font-bold text-sm"
+                      />
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-400">Upload IEEE Membership Proof (Image or PDF)</label>
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={(e) => setFormData({ ...formData, ieeeProof: e.target.files?.[0] || null })}
+                            className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white file:font-bold hover:file:bg-indigo-500 file:cursor-pointer cursor-pointer"
+                          />
+                          {formData.ieeeProof && (
+                            <p className="mt-2 text-xs text-green-400 flex items-center gap-2">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              {formData.ieeeProof.name}
+                            </p>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500">Upload your IEEE membership card or profile screenshot</p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {isOtpSent && !isOtpVerified && (
-                <div className="space-y-2 animate-in slide-in-from-top-2">
-                  <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Enter OTP</label>
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      className="w-full bg-indigo-950/20 border border-indigo-500/30 rounded-2xl px-6 py-4 text-white outline-none tracking-widest font-mono"
-                      placeholder="123456"
-                      maxLength={6}
-                    />
-                    <button
-                      type="button"
-                      onClick={verifyOtp}
-                      disabled={otp.length < 6}
-                      className="bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold px-6 rounded-2xl transition-all"
-                    >
-                      Verify
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-500 ml-1">OTP sent to {formData.email}</p>
-                </div>
-              )}
-
-              {isOtpVerified && (
-                <div className="bg-green-500/10 border border-green-500/20 rounded-2xl p-4 flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center text-green-500">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-green-400">Email Verified</p>
-                    <p className="text-xs text-green-500/70">{formData.email}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Secure Password</label>
-                <input type="password" required value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none" />
-              </div>
-            </div>
-
-            <div className="space-y-8">
-              <div className="bg-slate-900/40 p-8 rounded-[2rem] border border-white/5">
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6">Membership Tier</label>
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, isIeeeMember: true })}
-                    className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center group ${formData.isIeeeMember ? 'bg-indigo-600/10 border-indigo-500 text-white glow-indigo' : 'bg-slate-900 border-white/5 text-slate-500'}`}
-                  >
-                    <span className="font-black text-lg">IEEE</span>
-                    <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">₹400 / Team</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, isIeeeMember: false })}
-                    className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center group ${!formData.isIeeeMember ? 'bg-indigo-600/10 border-indigo-500 text-white glow-indigo' : 'bg-slate-900 border-white/5 text-slate-500'}`}
-                  >
-                    <span className="font-black text-lg">General</span>
-                    <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">₹500 / Team</span>
-                  </button>
-                </div>
-
-                {formData.isIeeeMember && (
-                  <div className="mb-8 animate-in slide-in-from-top-4">
-                    <label className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 ml-1">IEEE Member ID</label>
-                    <input
-                      type="text" required
-                      value={formData.ieeeNumber}
-                      onChange={(e) => setFormData({ ...formData, ieeeNumber: e.target.value })}
-                      placeholder="8-digit ID"
-                      className="w-full bg-indigo-950/20 border border-indigo-500/30 rounded-xl px-6 py-3 text-white font-bold outline-none"
-                    />
-                    <label className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 mt-4 ml-1">Upload IEEE Membership Card / Profile Screenshot</label>
-                    <div
-                      className="w-full bg-indigo-950/30 border-2 border-dashed border-indigo-500/40 rounded-2xl px-6 py-6 text-white font-bold outline-none flex flex-col items-center justify-center transition-all hover:border-indigo-400 hover:bg-indigo-950/40 cursor-pointer relative group"
-                      onClick={() => document.getElementById('ieee-proof-input')?.click()}
-                      onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-                      onDrop={e => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) setFormData(f => ({ ...f, ieeeProof: file }));
-                      }}
-                    >
+              <div className="space-y-8">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Members</label>
+                  {members.map((member, idx) => (
+                    <div key={idx} className="space-y-3 p-4 bg-slate-900/30 rounded-2xl">
+                      <p className="text-xs font-bold text-indigo-400">Member {idx + 1} {idx === 0 && '(Leader)'}</p>
                       <input
-                        id="ieee-proof-input"
-                        type="file"
-                        accept="image/*,application/pdf"
-                        required
-                        style={{ display: 'none' }}
-                        onChange={e => setFormData(f => ({ ...f, ieeeProof: e.target.files?.[0] || null }))}
+                        type="text"
+                        placeholder="Name"
+                        value={member.name}
+                        onChange={(e) => updateMember(idx, 'name', e.target.value)}
+                        disabled={idx === 0}
+                        className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none text-sm"
                       />
-                      <div className="flex flex-col items-center justify-center w-full">
-                        <svg className="w-8 h-8 mb-2 text-indigo-400 group-hover:text-indigo-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16v-4a4 4 0 018 0v4m-4 4v-4m0 0V4m0 8h.01" /></svg>
-                        <span className="text-xs text-indigo-300 group-hover:text-indigo-200 mb-1">Drag & drop or click to select</span>
-                        <span className="text-[10px] text-slate-400">Accepted: JPG, PNG, PDF &bull; Max 5MB</span>
-                        {formData.ieeeProof && (
-                          <span className="mt-2 text-[11px] text-green-400 font-mono truncate max-w-[90%]">{formData.ieeeProof.name}</span>
-                        )}
-                      </div>
+                      <input
+                        type="email"
+                        placeholder="Email"
+                        value={member.email}
+                        onChange={(e) => updateMember(idx, 'email', e.target.value)}
+                        disabled={idx === 0}
+                        className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none text-sm"
+                      />
+                      <input
+                        type="tel"
+                        placeholder="WhatsApp Number (10 digits)"
+                        value={member.contact}
+                        onChange={(e) => updateMember(idx, 'contact', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        disabled={idx === 0}
+                        className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none text-sm"
+                      />
                     </div>
-                  </div>
-                )}
-
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Team Roster</label>
-                    <div className="flex bg-slate-950 p-1 rounded-xl border border-white/5">
-                      {[2, 3, 4].map(size => (
-                        <button key={size} type="button" onClick={() => handleTeamSizeChange(size)} className={`px-4 py-1.5 text-[10px] rounded-lg font-black transition-all ${formData.teamSize === size ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>
-                          {size}P
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
-                    {members.map((member, idx) => (
-                      <div key={idx} className="bg-slate-950/40 p-4 rounded-xl border border-white/5">
-                        <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest mb-3">
-                          {idx === 0 ? "PRIMARY (LEADER)" : `COLLABORATOR ${idx + 1}`}
-                        </p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <input type="text" placeholder="Name" required value={member.name} onChange={(e) => updateMember(idx, 'name', e.target.value)} className="bg-transparent border-b border-white/10 text-xs text-white outline-none pb-1" disabled={idx === 0} />
-                          <input type="email" placeholder="Email" required value={member.email} onChange={(e) => updateMember(idx, 'email', e.target.value)} className="bg-transparent border-b border-white/10 text-xs text-white outline-none pb-1" disabled={idx === 0} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-              </div>
 
-              <div className="bg-indigo-600/10 p-8 rounded-[2rem] border border-indigo-500/20 glow-indigo">
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-slate-300 font-black text-sm uppercase tracking-widest">Total Fees</span>
-                  <span className="text-4xl font-black text-white">₹{calculateAmount()}</span>
+                <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6">
+                  <p className="text-sm font-bold text-white mb-2">Registration Fee</p>
+                  <p className="text-3xl font-black text-indigo-400">₹{calculateAmount()}</p>
+                  <p className="text-xs text-slate-500 mt-1">{formData.isIeeeMember ? 'IEEE Member Rate' : 'General Rate'}</p>
                 </div>
-                <button type="submit" disabled={slotsFull} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]">
-                  {slotsFull ? 'Registration Closed' : 'Proceed to Secure Checkout'}
+
+                <button
+                  type="submit"
+                  disabled={isProcessing || slotsFull}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-xl transition-all disabled:opacity-50"
+                >
+                  {isProcessing ? 'Processing...' : 'Proceed to Payment'}
                 </button>
               </div>
-            </div>
-          </form>
+            </form>
           </>
-        ) : (
-          <div className="max-w-xl mx-auto py-4 animate-in fade-in slide-in-from-bottom-8">
-            <div className="text-center mb-10">
-              <span className="text-[10px] font-black bg-green-500/10 text-green-500 border border-green-500/20 px-4 py-1.5 rounded-full uppercase tracking-[0.2em] mb-4 inline-block">Payment Active</span>
-              <h2 className="text-3xl font-black text-white mb-2">Final Step</h2>
-              <p className="text-slate-400">Please provide the transaction proof</p>
+        )}
+
+        {step === 'payment' && paymentOrder && (
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-black text-white mb-2">Scan QR Code to Pay</h2>
+              <p className="text-slate-400">Use any UPI app to complete the payment</p>
+              
+              {/* Saved State Indicator */}
+              <div className="mt-4 inline-flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-full px-4 py-2">
+                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-xs font-bold text-green-400">Payment details saved - Safe to close page</span>
+              </div>
             </div>
 
-            <div className="space-y-8">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-900/60 p-5 rounded-2xl border border-white/5">
-                  <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Razorpay ID</p>
-                  <p className="text-sm font-mono text-indigo-400 font-bold">{paymentData?.id}</p>
-                </div>
-                <div className="bg-slate-900/60 p-5 rounded-2xl border border-white/5">
-                  <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Amount</p>
-                  <p className="text-xl font-black text-white">₹{paymentData?.amount}</p>
-                </div>
-              </div>
-
-              {receipt && (
-                <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-[9px] font-black text-green-500 uppercase mb-1">Receipt Generated</p>
-                      <p className="text-lg font-mono text-white font-bold">{receipt.receiptNumber}</p>
+            <div className="bg-slate-900/50 rounded-3xl p-8 mb-8">
+              {/* QR Code is Primary - Most Reliable */}
+              <div className="flex justify-center mb-6">
+                {paymentOrder.qrCodeDataUrl ? (
+                  <div className="text-center">
+                    <img 
+                      src={paymentOrder.qrCodeDataUrl} 
+                      alt="UPI QR Code" 
+                      className="w-72 h-72 rounded-2xl border-4 border-indigo-500/30 bg-white p-3 shadow-2xl mx-auto"
+                    />
+                    <div className="mt-4 bg-green-500/10 border border-green-500/20 rounded-xl px-6 py-3">
+                      <p className="text-sm font-bold text-green-400">
+                        ✓ Scan with any UPI app to pay
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Works with Google Pay, PhonePe, Paytm, Amazon Pay, BHIM
+                      </p>
                     </div>
-                    <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center">
-                      <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => downloadReceipt(receipt)}
-                      className="bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download Receipt
-                    </button>
-                    <button
-                      onClick={() => printReceipt(receipt)}
-                      className="bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                      </svg>
-                      Print Receipt
-                    </button>
-                  </div>
-                  <p className="text-xs text-green-400/80 mt-4 text-center">
-                    💡 KEEP your receipt for reference and CARRY with you.
-                  </p>
-                </div>
-              )}
-
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-[2.5rem] p-12 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[300px] group ${screenshot ? 'border-indigo-500 bg-indigo-500/5' : 'border-slate-800 hover:border-indigo-500/40 hover:bg-white/5'}`}
-              >
-                {screenshot ? (
-                  <div className="relative">
-                    {screenshot.startsWith('data:application/pdf') ? (
-                      <div className="w-full max-w-xs mx-auto bg-slate-800 rounded-2xl p-6 flex flex-col items-center justify-center border border-white/10 shadow-2xl">
-                        <svg className="w-16 h-16 text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                        <p className="text-white font-bold text-sm">PDF Document Selected</p>
-                      </div>
-                    ) : (
-                      <img src={screenshot} alt="Evidence" className="max-h-64 rounded-2xl shadow-2xl border border-white/10" />
-                    )}
-                    <div className="absolute inset-0 bg-indigo-600/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-2xl transition-all font-black text-xs text-white">CHANGE FILE</div>
                   </div>
                 ) : (
-                  <>
-                    <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mb-6 text-slate-600 group-hover:text-indigo-400 transition-colors">
-                      <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  <div className="w-72 h-72 bg-slate-800 rounded-2xl border-4 border-white/10 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+                      <p className="text-slate-400 text-sm">Generating QR Code...</p>
                     </div>
-                    <p className="text-slate-300 font-black text-lg">Drop Screenshot Here</p>
-                    <p className="text-slate-500 text-xs mt-2 uppercase tracking-widest font-bold">PDF, PNG or JPG Accepted</p>
-                  </>
+                  </div>
                 )}
-                <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
+              </div>
+
+              <div className="space-y-4 text-center">
+                <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-4">
+                  <p className="text-xs text-slate-400 mb-1">Order ID</p>
+                  <p className="text-lg font-mono font-bold text-white">{paymentOrder.orderId}</p>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/20 rounded-2xl p-4">
+                  <p className="text-xs text-slate-400 mb-1">Amount to Pay</p>
+                  <p className="text-3xl font-black text-green-400">₹{paymentOrder.amount}</p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handlePaymentProofSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-white">UTR Number (12 digits)</label>
+                <input
+                  type="text"
+                  required
+                  value={utrNumber}
+                  onChange={(e) => setUtrNumber(e.target.value.toUpperCase())}
+                  placeholder="Enter 12-digit UTR"
+                  className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-mono text-lg"
+                  maxLength={12}
+                />
+                <p className="text-xs text-slate-500">Find UTR in your payment confirmation message</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-white">Payment Screenshot</label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*"
+                  onChange={(e) => setPaymentScreenshot(e.target.files?.[0] || null)}
+                  className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white file:font-bold hover:file:bg-indigo-500"
+                />
+                <p className="text-xs text-slate-500">Upload screenshot showing successful payment</p>
               </div>
 
               <button
-                onClick={handleFinalSubmit}
-                disabled={isProcessing || !screenshot}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black py-5 rounded-2xl shadow-2xl shadow-indigo-600/20 transition-all flex items-center justify-center space-x-4"
+                type="submit"
+                disabled={isProcessing}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-xl transition-all disabled:opacity-50"
               >
-                {isProcessing ? (
-                  <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-                ) : 'SUBMIT REGISTRATION'}
+                {isProcessing ? 'Submitting...' : 'Submit Payment Proof & Complete Registration'}
               </button>
-            </div>
+              {error && (
+                <div className="mt-4 text-red-500 font-bold text-center">
+                  {error}
+                </div>
+              )}
+            </form>
           </div>
         )}
       </div>

@@ -9,6 +9,7 @@ import Register from './pages/Register';
 import ParticipantDashboard from './pages/ParticipantDashboard';
 import JudgeDashboard from './pages/JudgeDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import TestQR from './pages/TestQR';
 
 
 const App: React.FC = () => {
@@ -58,13 +59,14 @@ const App: React.FC = () => {
 
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/test-qr" element={<TestQR />} />
             <Route 
               path="/login" 
               element={state.currentUser ? <Navigate to="/dashboard" /> : <Login store={{ state, updateState, login }} />} 
             />
             <Route 
               path="/register" 
-              element={<Register store={{ state, updateState, register }} />} 
+              element={<Register store={{ state, updateState, register, logout }} />} 
             />
             
             <Route 

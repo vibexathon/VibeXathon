@@ -38,9 +38,30 @@ export enum SubmissionStatus {
   REJECTED = 'rejected'
 }
 
+export enum PaymentStatus {
+  PENDING = 'pending',
+  PENDING_VERIFICATION = 'pending_verification',
+  PAID = 'paid',
+  REJECTED = 'rejected'
+}
+
 export interface TeamMember {
   name: string;
   email: string;
+  contact: string;
+}
+
+export interface PaymentOrder {
+  orderId: string;
+  amount: number;
+  status: PaymentStatus;
+  createdAt: number;
+  utr?: string;
+  screenshotUrl?: string;
+  qrCodeDataUrl?: string;
+  verifiedAt?: number;
+  verifiedBy?: string;
+  rejectionReason?: string;
 }
 
 export interface Team {
@@ -56,6 +77,7 @@ export interface Team {
   // Payment Details
   isIeeeMember: boolean;
   ieeeNumber?: string; // Membership ID for verification
+  paymentOrder?: PaymentOrder;
   paymentId?: string;
   amountPaid?: number;
   paymentScreenshot?: string; // Base64 representation of the uploaded screenshot
