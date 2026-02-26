@@ -65,7 +65,7 @@ export const STUDENT_COORDINATORS_BY_DEPT = [
 
 
 // Brochure download link - update this with your brochure URL
-export const BROCHURE_URL = '/VIBEXATHON.pdf';
+export const BROCHURE_URL = '/assets/VIBEXATHON.pdf';
 
 export const QUICK_ACTIONS = [
   { label: 'Register Your Team', icon: <UserPlus className="w-5 h-5" />, color: 'indigo' },
