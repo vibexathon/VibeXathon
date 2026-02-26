@@ -89,11 +89,11 @@ const PaymentVerification: React.FC<PaymentVerificationProps> = ({ team, onAppro
             {showScreenshot ? 'Hide' : 'View'} Payment Screenshot
           </button>
           {showScreenshot && (
-            <div className="mt-4 rounded-2xl overflow-hidden border-2 border-white/10">
+            <div className="mt-4 rounded-2xl overflow-hidden border-2 border-white/10 bg-slate-800/50 p-4">
               <img 
                 src={paymentOrder.screenshotUrl} 
                 alt="Payment Screenshot" 
-                className="w-full"
+                className="w-full max-w-md mx-auto rounded-lg shadow-lg object-contain max-h-[600px]"
               />
             </div>
           )}

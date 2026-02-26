@@ -304,6 +304,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
     if (!isTrustedEmail(formData.email)) return setError('Please use a valid email');
     if (formData.leaderContact.length !== 10) return setError('WhatsApp number must be 10 digits.');
     if (formData.isIeeeMember && !formData.ieeeNumber.trim()) return setError('IEEE Membership ID is required for discounted tier.');
+    if (formData.isIeeeMember && formData.ieeeNumber.length !== 8) return setError('IEEE Membership ID must be exactly 8 digits.');
     if (formData.isIeeeMember && !formData.ieeeProof) return setError('IEEE Membership Card/Profile Screenshot is required for discounted tier.');
 
     for (let i = 0; i < members.length; i++) {
@@ -352,7 +353,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       const fileName = `payment_proofs/${paymentOrder.orderId}_${Date.now()}.jpg`;
       const { data, error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, paymentScreenshot);
       if (uploadError) {
-        setError('Failed to upload image to Supabase: ' + uploadError.message);
+        setError(uploadError.message + ' Please Contact Here - 9035988820 / 9740789361' );
         setIsProcessing(false);
         return;
       }
@@ -371,6 +372,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       // Generate receipt
       const generatedReceipt = createReceipt({
         transactionId: updatedOrder.orderId,
+        utrNumber: utrNumber,
         teamName: formData.teamName,
         leaderName: formData.leaderName,
         email: formData.email,
@@ -378,7 +380,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         amount: updatedOrder.amount,
         isIeeeMember: formData.isIeeeMember,
         ieeeNumber: formData.ieeeNumber,
-        teamSize: formData.teamSize
+        teamSize: formData.teamSize,
+        members: members
       });
       setReceipt(generatedReceipt);
 
@@ -390,10 +393,17 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         const { data: ieeeData, error: ieeeUploadError } = await supabase.storage.from(bucketName).upload(ieeeFileName, formData.ieeeProof);
         if (ieeeUploadError) {
           console.error('IEEE proof upload error:', ieeeUploadError);
+          setError('Failed to upload IEEE proof: ' + ieeeUploadError.message);
+          setIsProcessing(false);
+          return;
         } else {
           const { data: ieeeUrlData } = supabase.storage.from(bucketName).getPublicUrl(ieeeFileName);
           if (ieeeUrlData?.publicUrl) {
             ieeeProofUrl = ieeeUrlData.publicUrl;
+          } else {
+            setError('Failed to get IEEE proof URL');
+            setIsProcessing(false);
+            return;
           }
         }
       }
@@ -517,10 +527,15 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
         const { data: ieeeData, error: ieeeUploadError } = await supabase.storage.from(bucketName).upload(ieeeFileName, formData.ieeeProof);
         if (ieeeUploadError) {
           console.error('IEEE proof upload error:', ieeeUploadError);
+          setIsProcessing(false);
+          return setError('Failed to upload IEEE proof: ' + ieeeUploadError.message);
         } else {
           const { data: ieeeUrlData } = supabase.storage.from(bucketName).getPublicUrl(ieeeFileName);
           if (ieeeUrlData?.publicUrl) {
             ieeeProofUrl = ieeeUrlData.publicUrl;
+          } else {
+            setIsProcessing(false);
+            return setError('Failed to get IEEE proof URL');
           }
         }
       }
@@ -775,24 +790,70 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
           </div>
         )}
 
+        {slotsFull && step === 'form' ? (
+          <div className="max-w-2xl mx-auto">
+            <div className="glass-card p-12 rounded-[3rem] text-center border-t-4 border-t-red-500">
+              <div className="w-32 h-32 bg-red-500/10 text-red-400 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
+                <svg className="w-16 h-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="text-4xl font-black text-white mb-4">Registrations Closed</h2>
+              <p className="text-slate-400 mb-6 font-medium text-lg">
+                All <span className="text-red-400 font-bold">25 team slots</span> have been filled
+              </p>
+              <p className="text-slate-500 mb-10 leading-relaxed">
+                Thank you for your interest in Vibexathon 1.0. Unfortunately, we have reached our maximum capacity. 
+                Follow us on social media for updates about future events.
+              </p>
+
+              <div className="bg-slate-900/40 rounded-3xl p-8 border border-white/5 mb-10">
+                <p className="text-sm font-bold text-indigo-400 mb-4">Stay Connected</p>
+                <a
+                  href="https://whatsapp.com/channel/0029Vb7eeY2Au3aVmysx1I1e"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-xl transition-all"
+                >
+                  Join WhatsApp Channel
+                </a>
+              </div>
+
+              <button
+                onClick={() => window.location.href = '/'}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl transition-all"
+              >
+                Return to Home
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
         {step === 'form' && (
           <>
             {slotsFull && (
-              <div className="mb-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-center">
-                Registration closed — slots full. Only 25 teams allowed.
+              <div className="mb-8 p-8 rounded-3xl bg-gradient-to-br from-red-500/10 to-orange-500/10 border-2 border-red-500/30 text-center">
+                <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h3 className="text-2xl font-black text-red-500 mb-2">Registrations Closed</h3>
+                <p className="text-red-400 font-bold text-lg mb-1">All 25 team slots have been filled</p>
+                <p className="text-slate-400 text-sm">Thank you for your interest in Vibexathon 1.0</p>
               </div>
             )}
 
             <form onSubmit={handlePayment} className={`grid grid-cols-1 lg:grid-cols-2 gap-12 ${slotsFull ? 'pointer-events-none opacity-60' : ''}`}>
               <div className="space-y-8">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Designation</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Name</label>
                   <input
                     type="text" required
                     value={formData.teamName}
                     onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
                     className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white focus:ring-2 focus:ring-indigo-500/40 outline-none transition-all placeholder:text-slate-700 font-bold"
-                    placeholder="The Visionaries"
+                    placeholder="Enter team name"
                   />
                 </div>
 
@@ -813,7 +874,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                       value={formData.leaderContact}
                       onChange={(e) => setFormData({ ...formData, leaderContact: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                       className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold"
-                      placeholder="9876543210"
+                      placeholder="Enter mobile number"
                     />
                   </div>
                 </div>
@@ -875,7 +936,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                     type="password" required
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold"
+                    disabled={!isOtpVerified}
+                    className={`w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-bold ${!isOtpVerified ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                 </div>
 
@@ -887,7 +949,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                         key={size}
                         type="button"
                         onClick={() => handleTeamSizeChange(size)}
-                        className={`flex-1 py-3 rounded-xl font-bold transition-all ${formData.teamSize === size ? 'bg-indigo-600 text-white' : 'bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}
+                        disabled={!isOtpVerified}
+                        className={`flex-1 py-3 rounded-xl font-bold transition-all ${!isOtpVerified ? 'opacity-50 cursor-not-allowed' : ''} ${formData.teamSize === size ? 'bg-indigo-600 text-white' : 'bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}
                       >
                         {size}
                       </button>
@@ -903,7 +966,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                     <button
                       type="button"
                       onClick={() => setFormData({ ...formData, isIeeeMember: true })}
-                      className={`relative p-6 rounded-2xl border-2 transition-all ${
+                      disabled={!isOtpVerified}
+                      className={`relative p-6 rounded-2xl border-2 transition-all ${!isOtpVerified ? 'opacity-50 cursor-not-allowed' : ''} ${
                         formData.isIeeeMember 
                           ? 'border-indigo-500 bg-indigo-500/10' 
                           : 'border-slate-700 bg-slate-900/30 hover:border-slate-600'
@@ -926,7 +990,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                     <button
                       type="button"
                       onClick={() => setFormData({ ...formData, isIeeeMember: false })}
-                      className={`relative p-6 rounded-2xl border-2 transition-all ${
+                      disabled={!isOtpVerified}
+                      className={`relative p-6 rounded-2xl border-2 transition-all ${!isOtpVerified ? 'opacity-50 cursor-not-allowed' : ''} ${
                         !formData.isIeeeMember 
                           ? 'border-indigo-500 bg-indigo-500/10' 
                           : 'border-slate-700 bg-slate-900/30 hover:border-slate-600'
@@ -949,14 +1014,16 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
 
                 <div className="space-y-4">
                   {formData.isIeeeMember && (
-                    <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6 space-y-4">
-                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">IEEE Member Details</p>
+                    <div className={`bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6 space-y-4 ${!isOtpVerified ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">IEEE Member Details (8 digits)</p>
                       <input
                         type="text"
-                        placeholder="IEEE Membership ID"
+                        placeholder="Enter IEEE membership ID"
                         value={formData.ieeeNumber}
-                        onChange={(e) => setFormData({ ...formData, ieeeNumber: e.target.value })}
+                        onChange={(e) => setFormData({ ...formData, ieeeNumber: e.target.value.replace(/\D/g, '').slice(0, 8) })}
                         className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none font-bold text-sm"
+                        maxLength={8}
+                        disabled={!isOtpVerified}
                       />
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-slate-400">Upload IEEE Membership Proof (Image or PDF)</label>
@@ -966,6 +1033,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                             accept="image/*,.pdf"
                             onChange={(e) => setFormData({ ...formData, ieeeProof: e.target.files?.[0] || null })}
                             className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white file:font-bold hover:file:bg-indigo-500 file:cursor-pointer cursor-pointer"
+                            disabled={!isOtpVerified}
                           />
                           {formData.ieeeProof && (
                             <p className="mt-2 text-xs text-green-400 flex items-center gap-2">
@@ -984,40 +1052,40 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
               </div>
 
               <div className="space-y-8">
-                <div className="space-y-4">
+                <div className={`space-y-4 ${!isOtpVerified ? 'opacity-50 pointer-events-none' : ''}`}>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team Members</label>
                   {members.map((member, idx) => (
                     <div key={idx} className="space-y-3 p-4 bg-slate-900/30 rounded-2xl">
                       <p className="text-xs font-bold text-indigo-400">Member {idx + 1} {idx === 0 && '(Leader)'}</p>
                       <input
                         type="text"
-                        placeholder="Name"
+                        placeholder="Enter name"
                         value={member.name}
                         onChange={(e) => updateMember(idx, 'name', e.target.value)}
-                        disabled={idx === 0}
+                        disabled={idx === 0 || !isOtpVerified}
                         className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none text-sm"
                       />
                       <input
                         type="email"
-                        placeholder="Email"
+                        placeholder="Enter email"
                         value={member.email}
                         onChange={(e) => updateMember(idx, 'email', e.target.value)}
-                        disabled={idx === 0}
+                        disabled={idx === 0 || !isOtpVerified}
                         className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none text-sm"
                       />
                       <input
                         type="tel"
-                        placeholder="WhatsApp Number (10 digits)"
+                        placeholder="Enter mobile number"
                         value={member.contact}
                         onChange={(e) => updateMember(idx, 'contact', e.target.value.replace(/\D/g, '').slice(0, 10))}
-                        disabled={idx === 0}
+                        disabled={idx === 0 || !isOtpVerified}
                         className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-3 text-white outline-none text-sm"
                       />
                     </div>
                   ))}
                 </div>
 
-                <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6">
+                <div className={`bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6 ${!isOtpVerified ? 'opacity-50' : ''}`}>
                   <p className="text-sm font-bold text-white mb-2">Registration Fee</p>
                   <p className="text-3xl font-black text-indigo-400">₹{calculateAmount()}</p>
                   <p className="text-xs text-slate-500 mt-1">{formData.isIeeeMember ? 'IEEE Member Rate' : 'General Rate'}</p>
@@ -1025,14 +1093,16 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
 
                 <button
                   type="submit"
-                  disabled={isProcessing || slotsFull}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-xl transition-all disabled:opacity-50"
+                  disabled={isProcessing || slotsFull || !isOtpVerified}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isProcessing ? 'Processing...' : 'Proceed to Payment'}
                 </button>
               </div>
             </form>
           </>
+        )}
+        </>
         )}
 
         {step === 'payment' && paymentOrder && (
@@ -1099,7 +1169,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                   required
                   value={utrNumber}
                   onChange={(e) => setUtrNumber(e.target.value.toUpperCase())}
-                  placeholder="Enter 12-digit UTR"
+                  placeholder="Enter UTR number"
                   className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none font-mono text-lg"
                   maxLength={12}
                 />

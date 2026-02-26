@@ -3,8 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { CountdownTime } from '../types';
 
 const CountdownTimer: React.FC = () => {
-  // Set target date to March 16, 2026, at 10:00 AM (Month is 0-indexed, so 2 is March)
-  const targetDate = new Date(2026, 2, 16, 10, 0, 0).getTime();
+  // Set target date to March 16, 2026, at 12:00 AM (Month is 0-indexed, so 2 is March)
+  const targetDate = new Date(2026, 2, 16, 12, 0, 0).getTime();
 
   const calculateTimeLeft = useCallback(() => {
     const now = new Date().getTime();

@@ -26,7 +26,7 @@ const App: React.FC = () => {
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
         <div className="text-center">
           <p className="text-white font-bold text-lg tracking-tight">Vibexathon 1.0</p>
-          <p className="text-slate-500 text-sm animate-pulse">Connecting.....</p>
+          <p className="text-slate-500 text-sm animate-pulse">Almost their.....</p>
         </div>
       </div>
     );

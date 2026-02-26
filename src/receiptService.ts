@@ -4,10 +4,12 @@
  */
 
 import jsPDF from 'jspdf';
+import { TeamMember } from './types';
 
 export interface Receipt {
   receiptNumber: string;
   transactionId: string;
+  utrNumber?: string;
   teamName: string;
   leaderName: string;
   email: string;
@@ -16,6 +18,7 @@ export interface Receipt {
   tier: 'IEEE' | 'General';
   ieeeNumber?: string;
   teamSize: number;
+  members?: TeamMember[];
   paymentDate: number;
   timestamp: number;
 }
@@ -39,6 +42,7 @@ export const generateReceiptNumber = (): string => {
  */
 export const createReceipt = (data: {
   transactionId: string;
+  utrNumber?: string;
   teamName: string;
   leaderName: string;
   email: string;
@@ -47,10 +51,12 @@ export const createReceipt = (data: {
   isIeeeMember: boolean;
   ieeeNumber?: string;
   teamSize: number;
+  members?: TeamMember[];
 }): Receipt => {
   return {
     receiptNumber: generateReceiptNumber(),
     transactionId: data.transactionId,
+    utrNumber: data.utrNumber,
     teamName: data.teamName,
     leaderName: data.leaderName,
     email: data.email,
@@ -59,6 +65,7 @@ export const createReceipt = (data: {
     tier: data.isIeeeMember ? 'IEEE' : 'General',
     ieeeNumber: data.ieeeNumber,
     teamSize: data.teamSize,
+    members: data.members,
     paymentDate: Date.now(),
     timestamp: Date.now()
   };
@@ -172,6 +179,40 @@ export const generateReceiptPDF = (receipt: Receipt): jsPDF => {
   }
   yPos += 15;
 
+  // Team Members Section
+  if (receipt.members && receipt.members.length > 0) {
+    doc.setTextColor(...darkColor);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('TEAM MEMBERS', 15, yPos);
+    
+    yPos += 2;
+    doc.setDrawColor(102, 126, 234);
+    doc.setLineWidth(0.5);
+    doc.line(15, yPos, 195, yPos);
+    
+    yPos += 8;
+
+    receipt.members.forEach((member, index) => {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...primaryColor);
+      doc.text(`Member ${index + 1}${index === 0 ? ' (Leader)' : ''}`, 15, yPos);
+      
+      yPos += 5;
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...darkColor);
+      const memberLines = doc.splitTextToSize(`${member.name} | ${member.email} | +91 ${member.contact}`, 175);
+      doc.text(memberLines, 15, yPos);
+      
+      yPos += 5 * memberLines.length + 3;
+    });
+
+    yPos += 5;
+  }
+
   // Divider
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.3);
@@ -216,7 +257,27 @@ export const generateReceiptPDF = (receipt: Receipt): jsPDF => {
   const txnLines = doc.splitTextToSize(receipt.transactionId, 170);
   doc.text(txnLines, 105, yPos + 6.5, { align: 'center' });
   
-  yPos += 20;
+  yPos += 15;
+
+  // UTR Number (if available)
+  if (receipt.utrNumber) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...grayColor);
+    doc.text('UTR NUMBER', 15, yPos);
+    
+    yPos += 5;
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(15, yPos, 180, 10, 4, 4, 'F');
+    doc.setFontSize(10);
+    doc.setFont('courier', 'bold');
+    doc.setTextColor(...darkColor);
+    doc.text(receipt.utrNumber, 105, yPos + 6.5, { align: 'center' });
+    
+    yPos += 15;
+  } else {
+    yPos += 5;
+  }
 
   // Footer Info Box
   doc.setFillColor(248, 250, 252);

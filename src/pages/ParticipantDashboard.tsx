@@ -242,7 +242,7 @@ const ParticipantDashboard: React.FC<ParticipantProps> = ({ store }) => {
             <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-indigo-600/5 rounded-full blur-3xl group-hover:bg-indigo-600/10 transition-colors"></div>
 
             {existingSubmission ? (
-              <div className="space-y-8 animate-in zoom-in-95 duration-500">
+              <div className="space-y-8 animate-in zoom-in-95 duration-500 w-full">
                 <div className={`w-24 h-24 rounded-3xl flex items-center justify-center mx-auto transition-transform hover:scale-110 duration-500 ${
                   existingSubmission.status === SubmissionStatus.SELECTED ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 glow-indigo' :
                   'bg-amber-500/10 text-amber-500 border border-amber-500/30'
@@ -261,6 +261,64 @@ const ParticipantDashboard: React.FC<ParticipantProps> = ({ store }) => {
                      {existingSubmission.totalScore ?? '--'}<span className="text-xl text-slate-700 font-black">/100</span>
                    </p>
                 </div>
+
+                {/* Detailed Score Breakdown */}
+                {existingSubmission.scores && (
+                  <div className="max-w-3xl mx-auto bg-slate-900/30 border border-white/5 rounded-3xl p-8">
+                    <h3 className="text-sm font-black text-indigo-400 uppercase tracking-widest mb-6 text-center">Score Breakdown</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Problem Understanding</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.problemUnderstanding}<span className="text-xs text-slate-600">/15</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Technical Implementation</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.technicalImplementation}<span className="text-xs text-slate-600">/25</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Innovation</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.innovation}<span className="text-xs text-slate-600">/15</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">AI Rigor</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.aiRigor}<span className="text-xs text-slate-600">/15</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Feasibility</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.feasibility}<span className="text-xs text-slate-600">/10</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Presentation</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.presentation}<span className="text-xs text-slate-600">/10</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Demo</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.demo}<span className="text-xs text-slate-600">/10</span></span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/50 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400 font-bold">Bonus</span>
+                          <span className="text-lg font-black text-white">{existingSubmission.scores.bonus}<span className="text-xs text-slate-600">/5</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {existingSubmission.feedback && (
                   <div className="max-w-md mx-auto p-5 bg-white/5 rounded-2xl border border-white/10 italic text-slate-400 text-sm">
                     "{existingSubmission.feedback}"

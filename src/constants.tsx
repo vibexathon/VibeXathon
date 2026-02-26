@@ -40,10 +40,10 @@ export const JUDGING_CRITERIA: JudgingItem[] = [
 ];
 
 export const CONVENERS = [
+   { name: 'Saneed M Nayak', role: 'Technical CONVENER', sub: 'Student', phone: '78924 08670', color: 'indigo' },
+  { name: 'Rakesh M', role: 'Technical CONVENER', sub: 'Student', phone: '97407 89361',color: 'indigo' },
   { name: 'Harshith Raj R', role: 'STUDENT CONVENER', sub: 'Student', phone: '90190 35913', color: 'indigo' },
-  { name: 'Muralimithun CS', role: 'STUDENT CONVENER', sub: 'Student', phone: '97414 88780', color: 'indigo' },
-  { name: 'Saneed M Nayak', role: 'Technical CONVENER', sub: 'Student', phone: '78924 08670', color: 'indigo' },
-  { name: 'Rakesh M', role: 'Technical CONVENER', sub: 'Student', phone: '97407 89361',color: 'indigo' }
+  { name: 'Muralimithun CS', role: 'STUDENT CONVENER', sub: 'Student', phone: '97414 88780', color: 'indigo' }
 ];
 
 export const FACULTY_COORDINATORS_LIST = [
@@ -79,6 +79,5 @@ export const RULES = [
   "The use of open-source libraries is permitted, provided they are cited.",
   "Inter-college teams are welcome to participate.",
   "Participants must bring their own laptops and equipment.",
-  "Plagiarism will lead to immediate disqualification.",
   "Decision of the judges will be final and binding."
 ];
