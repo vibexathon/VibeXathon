@@ -347,26 +347,30 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
 
     setIsProcessing(true);
     try {
-      // Upload image to Supabase Storage
-      const { supabase } = await import('../supabaseClient');
-      const bucketName = import.meta.env.VITE_SUPABASE_BUCKET || 'payment-proofs';
+      // Upload payment screenshot using helper with retry logic
+      const { uploadFileToSupabase, compressImage } = await import('../uploadHelper');
+      const bucketName = import.meta.env.VITE_SUPABASE_BUCKET || 'vibexathon';
+      
+      // Compress image if needed
+      const compressedFile = await compressImage(paymentScreenshot, 2);
       const fileName = `payment_proofs/${paymentOrder.orderId}_${Date.now()}.jpg`;
-      const { data, error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, paymentScreenshot);
-      if (uploadError) {
-        setError(uploadError.message + ' Please Contact Here - 9035988820 / 9740789361' );
-        setIsProcessing(false);
-        return;
-      }
-      // Get public URL
-      const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileName);
-      if (!urlData?.publicUrl) {
-        setError('Failed to get public image URL from Supabase');
+      
+      // Upload with retry logic
+      const uploadResult = await uploadFileToSupabase(compressedFile, fileName, bucketName, {
+        maxRetries: 3,
+        retryDelay: 1000
+      });
+
+      if (!uploadResult.success) {
+        setError(uploadResult.error + ' - Please Contact: 9035988820 / 9740789361');
         setIsProcessing(false);
         return;
       }
 
+      const paymentProofUrl = uploadResult.url!;
+
       // Update payment order with Supabase image URL
-      const updatedOrder = submitPaymentProof(paymentOrder, utrNumber, urlData.publicUrl);
+      const updatedOrder = submitPaymentProof(paymentOrder, utrNumber, paymentProofUrl);
       setPaymentOrder(updatedOrder);
 
       // Generate receipt
@@ -388,24 +392,27 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       // Now save to Firebase
       let ieeeProofUrl = '';
       if (formData.isIeeeMember && formData.ieeeProof) {
-        // Upload IEEE proof to Supabase
+        // Upload IEEE proof to Supabase using helper with retry logic
+        const { uploadFileToSupabase, compressImage } = await import('../uploadHelper');
+        
+        // Compress if it's an image
+        const compressedIeeeFile = await compressImage(formData.ieeeProof, 2);
         const ieeeFileName = `ieee_proofs/${formData.teamName}_${Date.now()}_${formData.ieeeProof.name}`;
-        const { data: ieeeData, error: ieeeUploadError } = await supabase.storage.from(bucketName).upload(ieeeFileName, formData.ieeeProof);
-        if (ieeeUploadError) {
-          console.error('IEEE proof upload error:', ieeeUploadError);
-          setError('Failed to upload IEEE proof: ' + ieeeUploadError.message);
+        
+        // Upload with retry logic
+        const ieeeUploadResult = await uploadFileToSupabase(compressedIeeeFile, ieeeFileName, bucketName, {
+          maxRetries: 3,
+          retryDelay: 1000
+        });
+
+        if (!ieeeUploadResult.success) {
+          console.error('IEEE proof upload error:', ieeeUploadResult.error);
+          setError('Failed to upload IEEE proof: ' + ieeeUploadResult.error + ' - Please Contact: 9035988820 / 9740789361');
           setIsProcessing(false);
           return;
-        } else {
-          const { data: ieeeUrlData } = supabase.storage.from(bucketName).getPublicUrl(ieeeFileName);
-          if (ieeeUrlData?.publicUrl) {
-            ieeeProofUrl = ieeeUrlData.publicUrl;
-          } else {
-            setError('Failed to get IEEE proof URL');
-            setIsProcessing(false);
-            return;
-          }
         }
+        
+        ieeeProofUrl = ieeeUploadResult.url!;
       }
 
       const newTeam: Team = {
