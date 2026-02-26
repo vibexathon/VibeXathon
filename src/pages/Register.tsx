@@ -353,11 +353,8 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       const compressedFile = await compressImage(paymentScreenshot, 2);
       const fileName = `payment_proofs/${paymentOrder.orderId}_${Date.now()}.jpg`;
       
-      // Upload with retry logic
-      const uploadResult = await uploadFileToSupabase(compressedFile, fileName, bucketName, {
-        maxRetries: 3,
-        retryDelay: 1000
-      });
+      // Upload with unlimited retry logic
+      const uploadResult = await uploadFileToSupabase(compressedFile, fileName, bucketName);
 
       if (!uploadResult.success) {
         setError(uploadResult.error + ' - Please Contact: 9035988820 / 9740789361');

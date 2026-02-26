@@ -11,7 +11,7 @@ interface UploadOptions {
 }
 
 /**
- * Upload file to Supabase with retry logic and better error handling
+ * Upload file to Supabase with unlimited retry logic and better error handling
  */
 export const uploadFileToSupabase = async (
   file: File,
@@ -19,7 +19,7 @@ export const uploadFileToSupabase = async (
   bucketName: string,
   options: UploadOptions = {}
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
-  const { maxRetries = 3, retryDelay = 1000 } = options;
+  const { retryDelay = 2000 } = options;
 
   // Validate file
   if (!file) {
@@ -46,10 +46,12 @@ export const uploadFileToSupabase = async (
     bucketName
   });
 
-  // Retry logic
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  // Unlimited retry logic
+  let attempt = 0;
+  while (true) {
+    attempt++;
     try {
-      console.log(`Upload attempt ${attempt}/${maxRetries}...`);
+      console.log(`Upload attempt ${attempt}...`);
 
       // Upload file
       const { data, error: uploadError } = await supabase.storage
@@ -63,16 +65,10 @@ export const uploadFileToSupabase = async (
       if (uploadError) {
         console.error(`Upload attempt ${attempt} failed:`, uploadError);
         
-        // If it's the last attempt, return the error
-        if (attempt === maxRetries) {
-          return {
-            success: false,
-            error: `Upload failed after ${maxRetries} attempts: ${uploadError.message}`
-          };
-        }
-
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+        // Wait before retrying with exponential backoff (max 10 seconds)
+        const delay = Math.min(retryDelay * Math.min(attempt, 5), 10000);
+        console.log(`Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
 
@@ -97,19 +93,12 @@ export const uploadFileToSupabase = async (
     } catch (error: any) {
       console.error(`Upload attempt ${attempt} exception:`, error);
       
-      if (attempt === maxRetries) {
-        return {
-          success: false,
-          error: `Upload failed: ${error.message || 'Unknown error'}`
-        };
-      }
-
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+      // Wait before retrying with exponential backoff (max 10 seconds)
+      const delay = Math.min(retryDelay * Math.min(attempt, 5), 10000);
+      console.log(`Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-
-  return { success: false, error: 'Upload failed after all retries' };
 };
 
 /**
