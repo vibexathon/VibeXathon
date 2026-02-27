@@ -343,18 +343,39 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
       return;
     }
 
+    // Validate file size before processing
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (paymentScreenshot.size > maxSize) {
+      setError(`Image too large (${(paymentScreenshot.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 2MB. Please compress or choose a smaller image.`);
+      return;
+    }
+
     setIsProcessing(true);
     try {
       // Upload payment screenshot using helper with retry logic
       const { uploadFileToSupabase, compressImage } = await import('../uploadHelper');
       const bucketName = import.meta.env.VITE_SUPABASE_BUCKET || 'vibexathon';
       
-      // Compress image if needed
-      const compressedFile = await compressImage(paymentScreenshot, 2);
+      // Always compress images to reduce size (target 800KB for better performance)
+      let fileToUpload = paymentScreenshot;
+      if (paymentScreenshot.type.startsWith('image/')) {
+        console.log('Compressing image before upload...');
+        fileToUpload = await compressImage(paymentScreenshot, 0.8); // Target 800KB
+      }
+      
+      // Double-check compressed file size
+      if (fileToUpload.size > maxSize) {
+        setError(`Image still too large after compression (${(fileToUpload.size / 1024 / 1024).toFixed(2)}MB). Please use a smaller image.`);
+        setIsProcessing(false);
+        return;
+      }
+      
+      console.log('File size after compression:', (fileToUpload.size / 1024).toFixed(2), 'KB');
+      
       const fileName = `payment_proofs/${paymentOrder.orderId}_${Date.now()}.jpg`;
       
-      // Upload with unlimited retry logic
-      const uploadResult = await uploadFileToSupabase(compressedFile, fileName, bucketName);
+      // Upload with retry logic
+      const uploadResult = await uploadFileToSupabase(fileToUpload, fileName, bucketName);
 
       if (!uploadResult.success) {
         setError(uploadResult.error + ' - Please Contact: 9035988820 / 9740789361');
@@ -748,7 +769,7 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
               onClick={clearDraft}
               className="text-xs font-black text-slate-600 hover:text-red-500 transition-colors uppercase tracking-widest pb-1 border-b border-transparent hover:border-red-500/50"
             >
-              Clear Draft
+              
             </button>
           )}
         </div>
@@ -1134,7 +1155,13 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
                   onChange={(e) => setPaymentScreenshot(e.target.files?.[0] || null)}
                   className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white file:font-bold hover:file:bg-indigo-500"
                 />
-                <p className="text-xs text-slate-500">Upload screenshot showing successful payment</p>
+                <p className="text-xs text-slate-500">Upload screenshot showing successful payment (Max 2MB)</p>
+                {paymentScreenshot && (
+                  <div className={`text-xs font-bold mt-2 ${paymentScreenshot.size > 2 * 1024 * 1024 ? 'text-red-400' : 'text-green-400'}`}>
+                    File size: {(paymentScreenshot.size / 1024).toFixed(2)} KB
+                    {paymentScreenshot.size > 2 * 1024 * 1024 && ' - Too large! Please choose a smaller image.'}
+                  </div>
+                )}
               </div>
 
               <button
@@ -1144,6 +1171,14 @@ const Register: React.FC<RegisterProps> = ({ store }) => {
               >
                 {isProcessing ? 'Submitting...' : 'Submit Payment Proof & Complete Registration'}
               </button>
+              {isProcessing && (
+                <div className="mt-4 text-center">
+                  <div className="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-4 py-2">
+                    <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-xs font-bold text-indigo-400">Compressing and uploading image...</span>
+                  </div>
+                </div>
+              )}
               {error && (
                 <div className="mt-4 text-red-500 font-bold text-center">
                   {error}
