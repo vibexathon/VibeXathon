@@ -6,6 +6,7 @@ import { UserRole } from './types';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VenueInfo from './pages/VenueInfo';
 import ParticipantDashboard from './pages/ParticipantDashboard';
 import JudgeDashboard from './pages/JudgeDashboard';
 import AdminDashboard from './pages/AdminDashboard';
@@ -60,6 +61,7 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/test-qr" element={<TestQR />} />
+            <Route path="/venue-info" element={<VenueInfo />} />
             <Route 
               path="/login" 
               element={state.currentUser ? <Navigate to="/dashboard" /> : <Login store={{ state, updateState, login }} />} 

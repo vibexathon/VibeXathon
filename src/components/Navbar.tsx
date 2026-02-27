@@ -63,12 +63,12 @@ const Navbar: React.FC = () => {
             </button>
           ))}
           <div className="flex items-center gap-3 ml-4">
-            <Link 
-              to="/register"
+            <button
+              onClick={() => navigate('/venue-info')}
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-lg shadow-indigo-600/20 active:scale-95"
             >
               Register
-            </Link>
+            </button>
             <Link 
               to="/login"
               className="hidden lg:block bg-slate-800 hover:bg-slate-700 text-white px-5 py-2 rounded-full text-sm font-semibold transition-all border border-slate-700 active:scale-95"
@@ -80,12 +80,12 @@ const Navbar: React.FC = () => {
         
         {/* Mobile: Register button visible + hamburger */}
         <div className="md:hidden flex items-center gap-2 flex-shrink-0">
-          <Link 
-            to="/register"
+          <button
+            onClick={() => navigate('/venue-info')}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-full text-sm font-semibold transition-all shadow-lg shadow-indigo-600/20 active:scale-95 whitespace-nowrap"
           >
             Register
-          </Link>
+          </button>
           <button
             type="button"
             aria-label="Open menu"

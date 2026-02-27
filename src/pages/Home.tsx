@@ -33,6 +33,7 @@ const Home: React.FC = () => {
   const [showPosterModal, setShowPosterModal] = useState(false);
   const [posterImageError, setPosterImageError] = useState(false);
   const [posterImageSrc, setPosterImageSrc] = useState('/assets/poster.png');
+  const [showVenueModal, setShowVenueModal] = useState(false);
   
   const [heroText, setHeroText] = useState("");
   const [heroVersion, setHeroVersion] = useState("");
@@ -72,7 +73,7 @@ const Home: React.FC = () => {
 
   const handleQuickAction = (actionLabel: string) => {
     if (actionLabel === 'Register Your Team') {
-      navigate('/register');
+      navigate('/venue-info');
     } else if (actionLabel === 'View Poster') {
       setPosterImageError(false);
       setPosterImageSrc('/assets/poster.png');
@@ -314,6 +315,155 @@ const Home: React.FC = () => {
                 onLoad={() => setPosterImageError(false)}
               />
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Venue Information Modal */}
+      {showVenueModal && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+          onClick={() => setShowVenueModal(false)}
+        >
+          <div 
+            className="relative bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto border border-white/10 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button - Separate from content */}
+            <div className="absolute top-4 right-4 z-20">
+              <button
+                onClick={() => setShowVenueModal(false)}
+                className="p-2 rounded-full bg-slate-800 hover:bg-slate-700 text-white transition-colors shadow-lg"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 sm:p-8 md:p-10">
+              <div className="text-center mb-6 sm:mb-8">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                  <MapPin className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-400" />
+                </div>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2">Venue & Logistics</h2>
+                <p className="text-slate-400 text-xs sm:text-sm">Important information for participants</p>
+              </div>
+
+              <div className="space-y-4 sm:space-y-6">
+                {/* Venue Details */}
+                <div className="bg-slate-800/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-white/5">
+                  <div className="flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-white mb-1 sm:mb-2">Venue Details</h3>
+                      <p className="text-sm sm:text-base text-slate-300 font-semibold">Nagarjuna College of Engineering and Technology</p>
+                      <p className="text-xs sm:text-sm text-slate-400">Bengaluru, Karnataka</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Accommodation */}
+                <div className="bg-amber-500/5 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-amber-500/20">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-amber-400 mb-1 sm:mb-2">Accommodation</h3>
+                      <p className="text-xs sm:text-sm text-slate-300">No accommodation will be provided for participants.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Refreshments */}
+                <div className="bg-green-500/5 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-green-500/20">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+                    </svg>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-green-400 mb-1 sm:mb-2">Refreshments</h3>
+                      <p className="text-xs sm:text-sm text-slate-300">Refreshments will be provided for 40 minutes during the event schedule.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Distance Information */}
+                <div className="bg-slate-800/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-white/5">
+                  <div className="flex items-start gap-3 mb-3 sm:mb-4">
+                    <svg className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base sm:text-lg font-bold text-white mb-2 sm:mb-3">Distance from Major Locations</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Majestic</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~49 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Yeshwanthpur</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~48 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Yelahanka</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~32 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Doddaballapura</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~34 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Hebbal</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~43 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Airport</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~23 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Chikkaballapura</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~13 km</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-900/50 rounded-lg p-2.5 sm:p-3">
+                          <span className="text-slate-300 truncate pr-2">Devanahalli</span>
+                          <span className="text-indigo-400 font-bold whitespace-nowrap">~13 km</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bus Information */}
+                <div className="bg-blue-500/5 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-blue-500/20">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-blue-400 mb-1 sm:mb-2">Public Transport</h3>
+                      <p className="text-xs sm:text-sm text-slate-300 mb-1"><span className="font-semibold">Route:</span> Bangalore to Chikkaballapura</p>
+                      <p className="text-xs sm:text-sm text-slate-300"><span className="font-semibold">Stop:</span> Nagarjuna College of Engineering and Technology</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 sm:mt-8">
+                <button
+                  onClick={() => {
+                    setShowVenueModal(false);
+                    navigate('/register');
+                  }}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 sm:py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm sm:text-base"
+                >
+                  Proceed to Register
+                  <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
